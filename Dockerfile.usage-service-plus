@@ -39,9 +39,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON=/usr/local/bin/python3.13
 WORKDIR /opt/chatgpt2api
-# Build deps for psycopg2-binary / curl_cffi / pillow wheels (if any need compile).
+# Build deps for psycopg2-binary / curl_cffi / pillow wheels (if any need compile)
+# plus `patch` for applying our vendor overrides.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git libpq-dev gcc openssl \
+        git libpq-dev gcc openssl patch \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 # Install Python deps into .venv first so the layer is cacheable.
@@ -56,6 +57,14 @@ COPY vendor/chatgpt2api/services ./services
 COPY vendor/chatgpt2api/utils ./utils
 COPY vendor/chatgpt2api/scripts ./scripts
 COPY vendor/chatgpt2api/assets ./assets
+# Apply our overlay patches against the vendored source. The patch approach
+# (instead of editing files in vendor/) keeps the submodule pristine, makes
+# review trivial via `git diff docker/patches/`, and breaks loudly when a
+# future upstream commit reshapes the touched code.
+COPY docker/patches /tmp/patches
+RUN for p in /tmp/patches/*.patch; do \
+        echo "applying $p" && patch -p1 < "$p"; \
+    done && rm -rf /tmp/patches
 
 # ---------- Stage 4: runtime ----------
 FROM --platform=$TARGETPLATFORM python:3.13-slim AS runtime

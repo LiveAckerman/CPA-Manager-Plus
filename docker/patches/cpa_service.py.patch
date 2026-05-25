@@ -1,0 +1,51 @@
+--- a/services/cpa_service.py
++++ b/services/cpa_service.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ import json
++import os
+ import threading
+ import uuid
+ from concurrent.futures import ThreadPoolExecutor, as_completed
+@@ -70,7 +71,40 @@
+     def __init__(self, store_file: Path):
+         self._store_file = store_file
+         self._lock = Lock()
++        self._seed_from_env()
+         self._pools: list[dict] = self._load()
++
++    def _seed_from_env(self) -> None:
++        """If CPA_BASE_URL and CPA_MANAGEMENT_KEY are set, ensure they appear
++        as the first pool in the on-disk config. Lets cpa-manager-plus
++        auto-wire chatgpt2api to the same CPA the operator already configured
++        in the panel, with zero manual setup on the chatgpt2api side.
++        """
++        env_url = (os.environ.get("CPA_BASE_URL") or "").strip()
++        env_key = (os.environ.get("CPA_MANAGEMENT_KEY") or "").strip()
++        if not env_url or not env_key:
++            return
++        env_pool = _normalize_pool({
++            "id": "env",
++            "name": (os.environ.get("CPA_POOL_NAME") or "Default").strip() or "Default",
++            "base_url": env_url,
++            "secret_key": env_key,
++        })
++        existing: list[dict] = []
++        if self._store_file.exists():
++            try:
++                raw = json.loads(self._store_file.read_text(encoding="utf-8"))
++                if isinstance(raw, dict) and "base_url" in raw:
++                    existing = [_normalize_pool(raw)]
++                elif isinstance(raw, list):
++                    existing = [_normalize_pool(item) for item in raw if isinstance(item, dict)]
++            except Exception:
++                existing = []
++        # Replace any prior env-seeded entry or duplicate base_url; the env-derived pool becomes default.
++        existing = [p for p in existing if p.get("id") != "env" and p.get("base_url") != env_url]
++        existing.insert(0, env_pool)
++        self._store_file.parent.mkdir(parents=True, exist_ok=True)
++        self._store_file.write_text(json.dumps(existing, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+ 
+     def _load(self) -> list[dict]:
+         if not self._store_file.exists():
