@@ -5,10 +5,9 @@
 #
 # Phase 1 build target: linux/amd64 only. arm64 support is planned for Phase 5.
 
-ARG BUILDPLATFORM
-ARG TARGETPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
+# Predefined BuildKit ARGs (BUILDPLATFORM / TARGETPLATFORM / TARGETOS /
+# TARGETARCH) are auto-populated inside each FROM/stage scope, so we do NOT
+# declare them globally — declaring them empty here would shadow the auto-fill.
 ARG S6_OVERLAY_VERSION=3.2.0.0
 
 # ---------- Stage 1: React panel (single-file HTML) ----------
