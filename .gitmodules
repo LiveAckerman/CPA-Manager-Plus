@@ -1,0 +1,3 @@
+[submodule "vendor/chatgpt2api"]
+	path = vendor/chatgpt2api
+	url = https://github.com/basketikun/chatgpt2api.git
