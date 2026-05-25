@@ -1,0 +1,33 @@
+#!/bin/sh
+# cpa-manager: Go usage-service + embedded React panel + reverse proxy for chatgpt2api.
+# The only externally exposed process.
+#
+# Wait up to CHATGPT2API_READY_TIMEOUT seconds (default 60) for the chatgpt2api
+# loopback service to answer /health 200, so the first proxy request after
+# container start doesn't race into a 503. After the timeout we start anyway —
+# the proxy handler will return 503 with Retry-After if upstream is still down,
+# and that's preferable to leaving cpa-manager (and its /health endpoint) dead.
+exec 2>&1
+
+CHATGPT2API_HOST="${CHATGPT2API_HOST:-127.0.0.1}"
+CHATGPT2API_PORT="${CHATGPT2API_PORT:-8000}"
+TIMEOUT="${CHATGPT2API_READY_TIMEOUT:-60}"
+URL="http://${CHATGPT2API_HOST}:${CHATGPT2API_PORT}/health"
+
+i=0
+# Use GET (-O /dev/null) rather than wget --spider: the latter sends HEAD which
+# chatgpt2api's /health rejects with 405 (GET-only route), so --spider would
+# never succeed.
+while [ "$i" -lt "$TIMEOUT" ]; do
+    if wget -q -O /dev/null --timeout=1 "$URL" 2>/dev/null; then
+        echo "[cpa-manager] chatgpt2api ready after ${i}s"
+        break
+    fi
+    i=$((i + 1))
+    sleep 1
+done
+if [ "$i" -ge "$TIMEOUT" ]; then
+    echo "[cpa-manager] chatgpt2api not ready after ${TIMEOUT}s; starting anyway, proxy will 503 until it comes up"
+fi
+
+exec /usr/local/bin/cpa-manager

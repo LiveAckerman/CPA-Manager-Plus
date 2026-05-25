@@ -40,5 +40,20 @@ TODO.md
 /bin/tmp/
 /bin/cpa-manager
 /data/usage.sqlite*
+/data/chatgpt2api/
 /run/*.pid
 /run/*.log
+
+# Python (chatgpt2api integration)
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+.python-version
+
+# Local docker-compose env files (contain CPA URL + secrets per deployment).
+# Track only the *.example templates; the actual file is per-machine.
+.env
+.env.dev
+.env.local
+.env.*.local

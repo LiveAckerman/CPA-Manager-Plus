@@ -1,0 +1,115 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-process image: React panel + Go usage-service + Python image-service.
+# Process supervision via s6-overlay v3. Single external port: 18317.
+#
+# Phase 1 build target: linux/amd64 only. arm64 support is planned for Phase 5.
+
+# Predefined BuildKit ARGs (BUILDPLATFORM / TARGETPLATFORM / TARGETOS /
+# TARGETARCH) are auto-populated inside each FROM/stage scope, so we do NOT
+# declare them globally — declaring them empty here would shadow the auto-fill.
+ARG S6_OVERLAY_VERSION=3.2.0.0
+
+# ---------- Stage 1: React panel (single-file HTML) ----------
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-build
+ARG VERSION=dev
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN VERSION=$VERSION npm run build
+# Produces /app/dist/index.html (vite-plugin-singlefile inlines everything).
+
+# ---------- Stage 2: Go usage-service ----------
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS go-build
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY usage-service ./usage-service
+COPY --from=web-build /app/dist/index.html ./usage-service/internal/httpapi/web/management.html
+WORKDIR /src/usage-service
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -ldflags="-s -w" -o /out/cpa-manager ./cmd/cpa-manager
+
+# ---------- Stage 3: image-service Python venv ----------
+# image-service/ is now our in-project rewrite of chatgpt2api's image-gen
+# path: same reverse-engineered ChatGPT protocol code, but the account pool
+# reads from CPA in real time instead of a local accounts.json. See
+# image-service/README.md for the rationale.
+FROM --platform=$TARGETPLATFORM python:3.13-slim AS py-build
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=/usr/local/bin/python3.13
+WORKDIR /opt/image-service
+# Build deps for curl_cffi / pillow wheels (libpq dropped since no postgres,
+# patch dropped since no vendor overlays — we own the code now).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc openssl \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir uv
+# Install Python deps into .venv first so the layer is cacheable.
+COPY image-service/pyproject.toml image-service/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+# Copy the application source.
+COPY image-service/main.py     ./
+COPY image-service/api         ./api
+COPY image-service/services    ./services
+COPY image-service/utils       ./utils
+
+# ---------- Stage 4: runtime ----------
+FROM --platform=$TARGETPLATFORM python:3.13-slim AS runtime
+ARG S6_OVERLAY_VERSION
+
+# Runtime system deps:
+#   ca-certificates: TLS to ChatGPT / CPA upstream
+#   wget          : container healthcheck + s6 readiness probes
+#   xz-utils      : extract s6-overlay tarballs
+#   openssl       : curl_cffi TLS
+# (dropped vs Phase 2: git + libpq5 — no longer needed by image-service)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates wget xz-utils openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install s6-overlay v3 (Phase 1: amd64 only).
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
+ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
+RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
+ && tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz \
+ && rm -f /tmp/s6-overlay-noarch.tar.xz /tmp/s6-overlay-x86_64.tar.xz
+
+# Drop in our binaries and app trees.
+COPY --from=go-build /out/cpa-manager /usr/local/bin/cpa-manager
+COPY --from=py-build /opt/image-service /opt/image-service
+
+# Drop in s6 service tree and init scripts.
+COPY docker/s6-rc.d /etc/s6-overlay/s6-rc.d
+COPY docker/scripts /etc/s6-overlay/scripts
+RUN chmod -R +x /etc/s6-overlay/s6-rc.d/*/run /etc/s6-overlay/scripts \
+ && find /etc/s6-overlay/s6-rc.d -name 'up' -exec chmod +x {} +
+
+# Defaults:
+#   - usage-service binds 0.0.0.0:18317 (the only exposed port)
+#   - image-service binds 127.0.0.1:8000 (never published)
+#   - both processes write persistent state under /data (one volume)
+#   - s6: keep container env, fail container if init scripts fail, log to stdout
+ENV HTTP_ADDR=0.0.0.0:18317 \
+    USAGE_DATA_DIR=/data \
+    USAGE_DB_PATH=/data/usage.sqlite \
+    CHATGPT2API_HOST=127.0.0.1 \
+    CHATGPT2API_PORT=8000 \
+    CHATGPT2API_DATA_DIR=/data/chatgpt-image \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    S6_KEEP_ENV=1 \
+    S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
+    S6_VERBOSITY=1
+
+EXPOSE 18317
+VOLUME ["/data"]
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=45s --retries=4 \
+  CMD wget -qO- http://127.0.0.1:18317/health >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/init"]
