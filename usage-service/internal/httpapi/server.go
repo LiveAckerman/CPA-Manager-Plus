@@ -162,6 +162,10 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.withCORS(s.handleModelListProxy)(w, r)
 		return
 	}
+	if isCPAOpenAIPassthroughPath(r.URL.Path) {
+		s.withCORS(s.handleCPAOpenAIPassthrough)(w, r)
+		return
+	}
 	if r.URL.Path == "/" {
 		http.Redirect(w, r, "/management.html", http.StatusTemporaryRedirect)
 		return
