@@ -1,0 +1,4 @@
+#!/bin/sh
+# cpa-manager: Go usage-service + embedded React panel. The only externally exposed process.
+exec 2>&1
+exec /usr/local/bin/cpa-manager

@@ -1,0 +1,8 @@
+#!/bin/sh
+# chatgpt2api: FastAPI image API, bound to loopback only (reverse-proxied by cpa-manager).
+exec 2>&1
+cd /opt/chatgpt2api || exit 1
+exec /opt/chatgpt2api/.venv/bin/uvicorn main:app \
+    --host "${CHATGPT2API_HOST:-127.0.0.1}" \
+    --port "${CHATGPT2API_PORT:-8000}" \
+    --no-access-log

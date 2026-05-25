@@ -6,3 +6,19 @@ npm-debug.log*
 usage-service/*.sqlite
 usage-service/*.sqlite-shm
 usage-service/*.sqlite-wal
+
+# Python build artifacts (chatgpt2api integration)
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.venv
+
+# Vendor submodule: we only need its source tree, not its own packaging
+vendor/chatgpt2api/.git
+vendor/chatgpt2api/.github
+vendor/chatgpt2api/docs
+vendor/chatgpt2api/test
+vendor/chatgpt2api/web
+vendor/chatgpt2api/Dockerfile
+vendor/chatgpt2api/docker-compose.*.yml
+vendor/chatgpt2api/.dockerignore

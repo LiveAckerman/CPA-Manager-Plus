@@ -40,5 +40,13 @@ TODO.md
 /bin/tmp/
 /bin/cpa-manager
 /data/usage.sqlite*
+/data/chatgpt2api/
 /run/*.pid
 /run/*.log
+
+# Python (chatgpt2api integration)
+*.pyc
+*.pyo
+__pycache__/
+.venv/
+.python-version

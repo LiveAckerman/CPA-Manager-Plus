@@ -1,0 +1,50 @@
+# docker-compose.dev.yml
+#
+# Local development for the multi-process image (cpa-manager + chatgpt2api).
+# Single port exposed (18317) — chatgpt2api stays on loopback inside the container.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   curl http://localhost:18317/health
+#   # inside the container:
+#   docker compose -f docker-compose.dev.yml exec cpa-manager-plus \
+#       wget -qO- http://127.0.0.1:8000/health
+
+services:
+  cpa-manager-plus:
+    build:
+      context: .
+      dockerfile: Dockerfile.usage-service-plus
+      args:
+        VERSION: dev
+    image: cpa-manager-plus:dev
+    container_name: cpa-manager-plus-dev
+    restart: unless-stopped
+    ports:
+      - "18317:18317"
+    environment:
+      # usage-service
+      HTTP_ADDR: "0.0.0.0:18317"
+      USAGE_DB_PATH: "/data/usage.sqlite"
+      USAGE_COLLECTOR_MODE: "auto"
+      USAGE_RESP_QUEUE: "usage"
+      USAGE_RESP_POP_SIDE: "right"
+      USAGE_BATCH_SIZE: "100"
+      USAGE_POLL_INTERVAL_MS: "500"
+      USAGE_QUERY_LIMIT: "50000"
+      USAGE_CORS_ORIGINS: "*"
+      # chatgpt2api (loopback-only; cpa-manager reverse-proxies)
+      CHATGPT2API_HOST: "127.0.0.1"
+      CHATGPT2API_PORT: "8000"
+      CHATGPT2API_DATA_DIR: "/data/chatgpt2api"
+    volumes:
+      - cpa-manager-plus-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:18317/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 4
+      start_period: 45s
+
+volumes:
+  cpa-manager-plus-data:
