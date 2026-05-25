@@ -68,10 +68,11 @@ func newImageGenRouter() *imageGenRouter {
 }
 
 // handleImageGen is bound in server.go to /v1/images/generations and
-// /v1/images/edits. It enforces the outer CPA Management Key, buffers the
-// request body, and dispatches via the chatgpt2api-then-CPA decision tree.
+// /v1/images/edits. It runs dual-auth (Management Key or CPA-issued client
+// API key — see image_gen_auth.go), buffers the request body, and dispatches
+// via the chatgpt2api-then-CPA decision tree.
 func (s *Server) handleImageGen(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeIfConfigured(w, r) {
+	if !s.authorizeImageGen(w, r) {
 		return
 	}
 	if r.Method != http.MethodPost {
