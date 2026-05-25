@@ -176,3 +176,52 @@ volumes:
 ## 9. 如果想极简
 
 不想动 s6 / 多进程，可以把 chatgpt2api 用 `docker-compose` 跟 cpa-manager 放一个 compose file，network 共享，让 usage-service 反代到 `http://chatgpt2api:8000`。**用户视角仍然是一个 docker compose 命令，一个面板**，缺点是镜像数 = 2。这是 Plan A 的"轻量版"，5 分钟可以跑起来。
+
+---
+
+## 10. 实施回顾（2026-05-25 更新）
+
+### Phase 1-2.5 按原计划落地
+- Phase 1：多进程镜像 + s6-overlay 跑通
+- Phase 2：Go 反代 + 内部 auth-key 桥接 + chatgpt2api 的 cpa_service.py.patch
+- Phase 2.5：`/v1/images/*` 智能路由 + dormant CPA fallback 骨架
+- 实测：成功通过统一面板路径 (POST /v1/images/generations) 端到端生图
+
+### 跟 §2 / §7 计划的偏差：抽取 chatgpt2api 核心进项目，删除 submodule
+
+**原计划**（§7 风险表 + §8 步骤 6）：用 `git submodule update --remote` 跟 chatgpt2api
+上游。带来两个真实问题：
+1. **账号池数据双份**：CPA 持有 OAuth 文件，chatgpt2api 又维护自己的 accounts.json，
+   CPA 后台 silent refresh access_token 时本地副本就过期，要靠定时 sync 补救。
+2. **维护责任错配**：chatgpt2api 内部的 PoW/Turnstile/TLS 指纹由上游维护没问题，但
+   "用户调生图 → 自动用 CPA 池里的 free 号"这一层语义是我们项目独有的，submodule
+   做不了。
+
+**新架构**（spike/extract-image-core 验证了不要全重写之后选的路 B）：
+- 删 `vendor/chatgpt2api` submodule + `.gitmodules`
+- 新增 `image-service/` 顶层目录，进项目跟踪
+- 复用 chatgpt2api 的 ChatGPT 反爬核心代码（`openai_backend_api.py` / `conversation.py`
+  / `pow.py` / `turnstile.py` / `helper.py`，约 2,400 LOC 原样保留）
+- **重写 `account_service.py`**：CPA 是唯一真相源，按 modtime 缓存文件列表，
+  按需 download token，401 时 invalidate 并 redownload，覆盖 CPA 续期场景
+- 砍掉 chatgpt2api 自带的 web UI / backup / register / chat-completions / 多后端
+  存储 / multi-user auth（约 5,000 LOC 不再维护）
+- s6 service `chatgpt2api` 重命名为 `image-service`，监听同样的 127.0.0.1:8000
+- 镜像体积从 124MB → 80MB（删了 sqlalchemy / psycopg2 / gitpython 等）
+
+**对外行为零变化**：
+- 面板路由（`/v1/images/generations`、`/v1/images/edits`）的 URL、参数、返回结构都不变
+- Phase 2 的反代 + auth bridge 不动
+- Phase 2.5 的 smart router + CPA fallback 不动
+
+**维护语义变化**：
+- 之前："锁 chatgpt2api submodule 到稳定 tag，每周/双周升级一次"
+- 现在："image-service 是我们的代码。ChatGPT 协议变化需要手动跟上游 chatgpt2api 项目 diff，
+  重要 fix 手动 cherry-pick 进来。" 上游 PoW/Turnstile 更新仍然是绕不开的责任，
+  只是不靠 submodule 自动拉，而是定期看上游 commit。
+
+**测试**：
+- 9 个 account_service 单元测试（mock CPA HTTP）
+- 容器内端到端真生图测试：HTTP 200 + 2.5MB PNG 在 70 秒内返回，使用一个 ChatGPT free
+  账号的 access_token（OAuth），CPA 池里的 121 个号被 image-service 0 同步直接读取。
+
