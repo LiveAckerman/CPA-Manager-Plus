@@ -312,9 +312,13 @@ func TestImageGen5xxFallbackEnabledNoKey(t *testing.T) {
 // --- Auth on the outer layer -------------------------------------------------
 
 func TestImageGenRequiresMgmtKeyWhenConfigured(t *testing.T) {
+	// cpaStatus: 401 so the dual-auth fallback (CPA validation) treats any
+	// non-Mgmt-Key Bearer token as an invalid client API key — matching the
+	// pre-dual-auth assertion that "wrong key -> 401".
 	fx := newImageGenFixture(t, imageGenFixtureOpts{
 		chatStatus: 200,
 		chatBody:   `{"data":[]}`,
+		cpaStatus:  401,
 		mgmtKey:    "outer-mgmt",
 	})
 	defer fx.teardown()
@@ -324,12 +328,12 @@ func TestImageGenRequiresMgmtKeyWhenConfigured(t *testing.T) {
 		t.Fatalf("missing auth: want 401, got %d", w.Code)
 	}
 
-	w = postImageGen(t, fx.handler, "wrong", `{"prompt":"x"}`) // wrong auth
+	w = postImageGen(t, fx.handler, "wrong", `{"prompt":"x"}`) // wrong auth — fails CPA validation too
 	if w.Code != 401 {
 		t.Fatalf("wrong auth: want 401, got %d", w.Code)
 	}
 
-	w = postImageGen(t, fx.handler, "outer-mgmt", `{"prompt":"x"}`) // good auth
+	w = postImageGen(t, fx.handler, "outer-mgmt", `{"prompt":"x"}`) // good Mgmt Key
 	if w.Code != 200 {
 		t.Fatalf("good auth: want 200, got %d (body=%s)", w.Code, w.Body.String())
 	}

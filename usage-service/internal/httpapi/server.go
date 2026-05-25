@@ -31,12 +31,13 @@ import (
 var embeddedPanel embed.FS
 
 type Server struct {
-	cfg        config.Config
-	store      *store.Store
-	collector  *collector.Manager
-	startedAt  int64
-	imageProxy *chatGPT2APIProxy
-	imageGen   *imageGenRouter
+	cfg             config.Config
+	store           *store.Store
+	collector       *collector.Manager
+	startedAt       int64
+	imageProxy      *chatGPT2APIProxy
+	imageGen        *imageGenRouter
+	apiKeyValidator *apiKeyValidator
 }
 
 type setupSource string
@@ -111,6 +112,7 @@ func New(cfg config.Config, store *store.Store, collector *collector.Manager) *S
 	}
 	s.imageProxy = proxy
 	s.imageGen = newImageGenRouter()
+	s.apiKeyValidator = newAPIKeyValidator()
 	return s
 }
 
