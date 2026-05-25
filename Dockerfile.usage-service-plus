@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-process image: React panel + Go usage-service + Python chatgpt2api.
+# Multi-process image: React panel + Go usage-service + Python image-service.
 # Process supervision via s6-overlay v3. Single external port: 18317.
 #
 # Phase 1 build target: linux/amd64 only. arm64 support is planned for Phase 5.
@@ -32,53 +32,44 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -ldflags="-s -w" -o /out/cpa-manager ./cmd/cpa-manager
 
-# ---------- Stage 3: chatgpt2api Python venv ----------
+# ---------- Stage 3: image-service Python venv ----------
+# image-service/ is now our in-project rewrite of chatgpt2api's image-gen
+# path: same reverse-engineered ChatGPT protocol code, but the account pool
+# reads from CPA in real time instead of a local accounts.json. See
+# image-service/README.md for the rationale.
 FROM --platform=$TARGETPLATFORM python:3.13-slim AS py-build
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON=/usr/local/bin/python3.13
-WORKDIR /opt/chatgpt2api
-# Build deps for psycopg2-binary / curl_cffi / pillow wheels (if any need compile)
-# plus `patch` for applying our vendor overrides.
+WORKDIR /opt/image-service
+# Build deps for curl_cffi / pillow wheels (libpq dropped since no postgres,
+# patch dropped since no vendor overlays — we own the code now).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git libpq-dev gcc openssl patch \
+        gcc openssl \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 # Install Python deps into .venv first so the layer is cacheable.
-COPY vendor/chatgpt2api/pyproject.toml vendor/chatgpt2api/uv.lock ./
+COPY image-service/pyproject.toml image-service/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-# Copy only the bits we actually need at runtime (skip vendor's own web UI / docs / tests).
-COPY vendor/chatgpt2api/main.py ./
-COPY vendor/chatgpt2api/config.json ./
-COPY vendor/chatgpt2api/VERSION ./
-COPY vendor/chatgpt2api/api ./api
-COPY vendor/chatgpt2api/services ./services
-COPY vendor/chatgpt2api/utils ./utils
-COPY vendor/chatgpt2api/scripts ./scripts
-COPY vendor/chatgpt2api/assets ./assets
-# Apply our overlay patches against the vendored source. The patch approach
-# (instead of editing files in vendor/) keeps the submodule pristine, makes
-# review trivial via `git diff docker/patches/`, and breaks loudly when a
-# future upstream commit reshapes the touched code.
-COPY docker/patches /tmp/patches
-RUN for p in /tmp/patches/*.patch; do \
-        echo "applying $p" && patch -p1 < "$p"; \
-    done && rm -rf /tmp/patches
+# Copy the application source.
+COPY image-service/main.py     ./
+COPY image-service/api         ./api
+COPY image-service/services    ./services
+COPY image-service/utils       ./utils
 
 # ---------- Stage 4: runtime ----------
 FROM --platform=$TARGETPLATFORM python:3.13-slim AS runtime
 ARG S6_OVERLAY_VERSION
 
 # Runtime system deps:
-#   ca-certificates: TLS to OpenAI / CPA upstream
+#   ca-certificates: TLS to ChatGPT / CPA upstream
 #   wget          : container healthcheck + s6 readiness probes
 #   xz-utils      : extract s6-overlay tarballs
-#   git           : chatgpt2api git-backed storage backend
-#   libpq5        : psycopg2-binary runtime
 #   openssl       : curl_cffi TLS
+# (dropped vs Phase 2: git + libpq5 — no longer needed by image-service)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates wget xz-utils git libpq5 openssl \
+        ca-certificates wget xz-utils openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install s6-overlay v3 (Phase 1: amd64 only).
@@ -90,7 +81,7 @@ RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
 
 # Drop in our binaries and app trees.
 COPY --from=go-build /out/cpa-manager /usr/local/bin/cpa-manager
-COPY --from=py-build /opt/chatgpt2api /opt/chatgpt2api
+COPY --from=py-build /opt/image-service /opt/image-service
 
 # Drop in s6 service tree and init scripts.
 COPY docker/s6-rc.d /etc/s6-overlay/s6-rc.d
@@ -100,7 +91,7 @@ RUN chmod -R +x /etc/s6-overlay/s6-rc.d/*/run /etc/s6-overlay/scripts \
 
 # Defaults:
 #   - usage-service binds 0.0.0.0:18317 (the only exposed port)
-#   - chatgpt2api binds 127.0.0.1:8000 (never published)
+#   - image-service binds 127.0.0.1:8000 (never published)
 #   - both processes write persistent state under /data (one volume)
 #   - s6: keep container env, fail container if init scripts fail, log to stdout
 ENV HTTP_ADDR=0.0.0.0:18317 \
@@ -108,7 +99,7 @@ ENV HTTP_ADDR=0.0.0.0:18317 \
     USAGE_DB_PATH=/data/usage.sqlite \
     CHATGPT2API_HOST=127.0.0.1 \
     CHATGPT2API_PORT=8000 \
-    CHATGPT2API_DATA_DIR=/data/chatgpt2api \
+    CHATGPT2API_DATA_DIR=/data/chatgpt-image \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     S6_KEEP_ENV=1 \
