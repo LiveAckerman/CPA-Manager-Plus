@@ -1,0 +1,27 @@
+#!/bin/sh
+# image-service: in-project FastAPI image-gen, bound to loopback only
+# (reverse-proxied by cpa-manager).
+#
+# Reads the per-boot internal auth key from /run/chatgpt2api_internal_key
+# (written by the init-auth-key oneshot) and exports it as CHATGPT2API_AUTH_KEY.
+# Process-local export means `docker exec ... env` never sees the secret.
+#
+# Env vars expected (set in docker-compose / .env.dev):
+#   CPA_BASE_URL          — CPA upstream URL (account_service pulls token list)
+#   CPA_MANAGEMENT_KEY    — CPA Management Key
+#   CHATGPT2API_DATA_DIR  — persistent dir for saved PNGs (default /data/chatgpt-image)
+exec 2>&1
+
+KEY_FILE="${CHATGPT2API_INTERNAL_KEY_FILE:-/run/chatgpt2api_internal_key}"
+if [ ! -s "${KEY_FILE}" ]; then
+    echo "[image-service] FATAL: internal key file ${KEY_FILE} missing or empty" >&2
+    exit 1
+fi
+CHATGPT2API_AUTH_KEY="$(cat "${KEY_FILE}")"
+export CHATGPT2API_AUTH_KEY
+
+cd /opt/image-service || exit 1
+exec /opt/image-service/.venv/bin/uvicorn main:app \
+    --host "${CHATGPT2API_HOST:-127.0.0.1}" \
+    --port "${CHATGPT2API_PORT:-8000}" \
+    --no-access-log

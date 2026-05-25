@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"mime"
 	"net/http"
@@ -30,10 +31,12 @@ import (
 var embeddedPanel embed.FS
 
 type Server struct {
-	cfg       config.Config
-	store     *store.Store
-	collector *collector.Manager
-	startedAt int64
+	cfg        config.Config
+	store      *store.Store
+	collector  *collector.Manager
+	startedAt  int64
+	imageProxy *chatGPT2APIProxy
+	imageGen   *imageGenRouter
 }
 
 type setupSource string
@@ -92,12 +95,23 @@ type apiKeyAliasesRequest struct {
 }
 
 func New(cfg config.Config, store *store.Store, collector *collector.Manager) *Server {
-	return &Server{
+	s := &Server{
 		cfg:       cfg,
 		store:     store,
 		collector: collector,
 		startedAt: time.Now().UnixMilli(),
 	}
+	// Build the chatgpt2api reverse proxy if an upstream URL is configured.
+	// A configuration error here is non-fatal: requests to the proxy routes
+	// will return 503 until the operator fixes the env var, but the rest of
+	// the management surface stays up.
+	proxy, err := newChatGPT2APIProxy(cfg.ChatGPT2APIUpstreamURL, cfg.ChatGPT2APIInternalKey)
+	if err != nil {
+		log.Printf("chatgpt2api proxy disabled: %v", err)
+	}
+	s.imageProxy = proxy
+	s.imageGen = newImageGenRouter()
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -108,6 +122,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/usage-service/config", s.withCORS(s.handleManagerConfig))
 	mux.HandleFunc("/setup", s.withCORS(s.handleSetup))
 	mux.HandleFunc("/management.html", s.handlePanel)
+	// chatgpt2api reverse-proxy routes — see image_proxy.go for the rationale
+	// behind the /openai and /v0/image prefixes.
+	mux.HandleFunc("/openai/", s.withCORS(s.handleChatGPT2APIProxy))
+	mux.HandleFunc("/v0/image/", s.withCORS(s.handleChatGPT2APIProxy))
+	// Unified smart image-gen endpoint — see image_gen.go. Today this just
+	// forwards to chatgpt2api; flip IMAGE_CPA_FALLBACK_ENABLED to wire up
+	// CPA fallback for Plus/Pro accounts later.
+	mux.HandleFunc("/v1/images/generations", s.withCORS(s.handleImageGen))
+	mux.HandleFunc("/v1/images/edits", s.withCORS(s.handleImageGen))
 	mux.HandleFunc("/", s.handleRoot)
 	return mux
 }
