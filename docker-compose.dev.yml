@@ -37,6 +37,13 @@ services:
       CHATGPT2API_HOST: "127.0.0.1"
       CHATGPT2API_PORT: "8000"
       CHATGPT2API_DATA_DIR: "/data/chatgpt2api"
+      # Smart image-gen router fallback (off by default — flip on once
+      # CPA has Plus/Pro accounts that can call OpenAI's image API).
+      # When ENABLED=true AND CPA_IMAGE_API_KEY is set, the unified
+      # /v1/images/generations and /v1/images/edits routes retry on CPA
+      # if chatgpt2api returns 5xx.
+      IMAGE_CPA_FALLBACK_ENABLED: "false"
+      # CPA_IMAGE_API_KEY: ""  # paste your CPA-signed client API key here
     volumes:
       - cpa-manager-plus-data:/data
     healthcheck:

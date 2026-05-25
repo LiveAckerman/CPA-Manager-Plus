@@ -28,22 +28,29 @@ const defaultChatGPT2APIInternalKeyFile = "/run/chatgpt2api_internal_key"
 // for unit tests or out-of-container deployments.
 const defaultChatGPT2APIUpstreamURL = "http://127.0.0.1:8000"
 
+// defaultCPAImageAPIKeyFile is where the smart image router looks for the
+// CPA-issued client API key used during fallback. Lives under /run/secrets
+// alongside cpa_management_key so the same docker secret pattern works.
+const defaultCPAImageAPIKeyFile = "/run/secrets/cpa_image_api_key"
+
 type Config struct {
-	HTTPAddr               string
-	DBPath                 string
-	CPAUpstreamURL         string
-	ManagementKey          string
-	CollectorMode          string
-	Queue                  string
-	PopSide                string
-	BatchSize              int
-	PollInterval           time.Duration
-	QueryLimit             int
-	PanelPath              string
-	CORSOrigins            []string
-	TLSSkipVerify          bool
-	ChatGPT2APIUpstreamURL string
-	ChatGPT2APIInternalKey string
+	HTTPAddr                string
+	DBPath                  string
+	CPAUpstreamURL          string
+	ManagementKey           string
+	CollectorMode           string
+	Queue                   string
+	PopSide                 string
+	BatchSize               int
+	PollInterval            time.Duration
+	QueryLimit              int
+	PanelPath               string
+	CORSOrigins             []string
+	TLSSkipVerify           bool
+	ChatGPT2APIUpstreamURL  string
+	ChatGPT2APIInternalKey  string
+	ImageCPAFallbackEnabled bool
+	CPAImageAPIKey          string
 }
 
 type fileConfig struct {
@@ -101,8 +108,10 @@ func Load() (Config, error) {
 		PanelPath:              env("PANEL_PATH", resolveConfigPath(cfgFile.PanelPath, cfgDir)),
 		CORSOrigins:            splitCSV(env("USAGE_CORS_ORIGINS", strings.Join(sliceFallback(cfgFile.CORSOrigins, []string{"*"}), ","))),
 		TLSSkipVerify:          envBool("USAGE_RESP_TLS_SKIP_VERIFY", cfgFile.TLSSkipVerify),
-		ChatGPT2APIUpstreamURL: env("CHATGPT2API_UPSTREAM_URL", defaultChatGPT2APIUpstreamURL),
-		ChatGPT2APIInternalKey: readSecret("CHATGPT2API_INTERNAL_KEY", "CHATGPT2API_INTERNAL_KEY_FILE", defaultChatGPT2APIInternalKeyFile),
+		ChatGPT2APIUpstreamURL:  env("CHATGPT2API_UPSTREAM_URL", defaultChatGPT2APIUpstreamURL),
+		ChatGPT2APIInternalKey:  readSecret("CHATGPT2API_INTERNAL_KEY", "CHATGPT2API_INTERNAL_KEY_FILE", defaultChatGPT2APIInternalKeyFile),
+		ImageCPAFallbackEnabled: envBool("IMAGE_CPA_FALLBACK_ENABLED", false),
+		CPAImageAPIKey:          readSecret("CPA_IMAGE_API_KEY", "CPA_IMAGE_API_KEY_FILE", defaultCPAImageAPIKeyFile),
 	}, nil
 }
 

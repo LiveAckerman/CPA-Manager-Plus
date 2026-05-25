@@ -36,6 +36,7 @@ type Server struct {
 	collector  *collector.Manager
 	startedAt  int64
 	imageProxy *chatGPT2APIProxy
+	imageGen   *imageGenRouter
 }
 
 type setupSource string
@@ -109,6 +110,7 @@ func New(cfg config.Config, store *store.Store, collector *collector.Manager) *S
 		log.Printf("chatgpt2api proxy disabled: %v", err)
 	}
 	s.imageProxy = proxy
+	s.imageGen = newImageGenRouter()
 	return s
 }
 
@@ -124,6 +126,11 @@ func (s *Server) Handler() http.Handler {
 	// behind the /openai and /v0/image prefixes.
 	mux.HandleFunc("/openai/", s.withCORS(s.handleChatGPT2APIProxy))
 	mux.HandleFunc("/v0/image/", s.withCORS(s.handleChatGPT2APIProxy))
+	// Unified smart image-gen endpoint — see image_gen.go. Today this just
+	// forwards to chatgpt2api; flip IMAGE_CPA_FALLBACK_ENABLED to wire up
+	// CPA fallback for Plus/Pro accounts later.
+	mux.HandleFunc("/v1/images/generations", s.withCORS(s.handleImageGen))
+	mux.HandleFunc("/v1/images/edits", s.withCORS(s.handleImageGen))
 	mux.HandleFunc("/", s.handleRoot)
 	return mux
 }
