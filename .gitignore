@@ -50,3 +50,10 @@ TODO.md
 __pycache__/
 .venv/
 .python-version
+
+# Local docker-compose env files (contain CPA URL + secrets per deployment).
+# Track only the *.example templates; the actual file is per-machine.
+.env
+.env.dev
+.env.local
+.env.*.local

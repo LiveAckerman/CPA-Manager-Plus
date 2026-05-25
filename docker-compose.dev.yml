@@ -22,8 +22,12 @@ services:
     restart: unless-stopped
     ports:
       - "18317:18317"
+    # Site-specific env (CPA URL + keys + fallback flags) lives in .env.dev.
+    # That file is .gitignored; copy .env.dev.example -> .env.dev and fill in.
+    env_file:
+      - .env.dev
     environment:
-      # usage-service
+      # usage-service (all non-secret container-internal defaults).
       HTTP_ADDR: "0.0.0.0:18317"
       USAGE_DB_PATH: "/data/usage.sqlite"
       USAGE_COLLECTOR_MODE: "auto"
@@ -33,17 +37,10 @@ services:
       USAGE_POLL_INTERVAL_MS: "500"
       USAGE_QUERY_LIMIT: "50000"
       USAGE_CORS_ORIGINS: "*"
-      # chatgpt2api (loopback-only; cpa-manager reverse-proxies)
+      # chatgpt2api (loopback-only; cpa-manager reverse-proxies).
       CHATGPT2API_HOST: "127.0.0.1"
       CHATGPT2API_PORT: "8000"
       CHATGPT2API_DATA_DIR: "/data/chatgpt2api"
-      # Smart image-gen router fallback (off by default — flip on once
-      # CPA has Plus/Pro accounts that can call OpenAI's image API).
-      # When ENABLED=true AND CPA_IMAGE_API_KEY is set, the unified
-      # /v1/images/generations and /v1/images/edits routes retry on CPA
-      # if chatgpt2api returns 5xx.
-      IMAGE_CPA_FALLBACK_ENABLED: "false"
-      # CPA_IMAGE_API_KEY: ""  # paste your CPA-signed client API key here
     volumes:
       - cpa-manager-plus-data:/data
     healthcheck:
