@@ -1562,7 +1562,11 @@
     "image_pool_status_fresh": "не обновл.",
     "image_pool_status_active": "активный",
     "image_pool_status_invalid": "недейств.",
-    "image_pool_empty": "Аккаунтов в пуле нет."
+    "image_pool_empty": "Аккаунтов в пуле нет.",
+    "image_pool_prev_page": "Назад",
+    "image_pool_next_page": "Далее",
+    "image_pool_page_x_of_y": "Страница {{current}} / {{total}}",
+    "image_pool_last_refresh_prefix": "Последнее обновление:"
   },
   "logs": {
     "title": "Просмотр журналов",
