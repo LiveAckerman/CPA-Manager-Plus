@@ -111,6 +111,7 @@
     "submit_button": "登入",
     "submitting": "連線中...",
     "error_title": "登入失敗",
+    "error_backend_detail": "後端返回",
     "error_required": "請填寫完整的連線資訊",
     "error_invalid": "連線失敗，請檢查位址和金鑰",
     "error_network": "網路連線失敗，請檢查網路或伺服器位址",
@@ -796,6 +797,22 @@
     "limit_window": "{{duration}} 限額",
     "limit_index": "限額 #{{index}}",
     "reset_hint": "{{hint}} 後重置"
+  },
+  "xai_quota": {
+    "title": "Grok 配額",
+    "empty_title": "暫無 xAI/Grok 驗證",
+    "empty_desc": "上傳 xAI/Grok 驗證檔案後即可查看配額。",
+    "idle": "點擊此處重新整理配額",
+    "loading": "正在載入配額...",
+    "load_failed": "配額取得失敗：{{message}}",
+    "missing_auth_index": "驗證檔案缺少 auth_index",
+    "empty_data": "暫無配額資料",
+    "refresh_button": "重新整理配額",
+    "fetch_all": "取得全部",
+    "monthly_credits": "月度配額",
+    "pay_as_you_go_label": "按量付費",
+    "pay_as_you_go_enabled": "已啟用，封頂 {{cap}}",
+    "pay_as_you_go_disabled": "未啟用"
   },
   "vertex_import": {
     "title": "Vertex JSON 登入",

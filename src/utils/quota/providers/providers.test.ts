@@ -18,6 +18,7 @@ import {
   fetchCodexQuota,
   fetchGeminiCliQuotaBuckets,
   fetchKimiQuota,
+  fetchXaiQuota,
 } from './index';
 
 const t = ((key: string, params?: Record<string, unknown>) => {
@@ -260,6 +261,109 @@ describe('quota providers', () => {
       apiCallMock.mockResolvedValue({ statusCode: 200, body: payload });
       const result = await fetchKimiQuota(baseFile({ type: 'kimi' }), t);
       expect(result.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('fetchXaiQuota', () => {
+    it('throws when the auth index is missing', async () => {
+      await expect(fetchXaiQuota(baseFile({ type: 'xai', authIndex: '' }), t)).rejects.toThrow(
+        'xai_quota.missing_auth_index'
+      );
+    });
+
+    it('throws a status error on non-2xx response', async () => {
+      apiCallMock.mockResolvedValue({ statusCode: 403, body: null });
+      await expect(fetchXaiQuota(baseFile({ type: 'xai' }), t)).rejects.toMatchObject({
+        status: 403,
+      });
+    });
+
+    it('throws when the payload has no usable config block', async () => {
+      apiCallMock.mockResolvedValue({ statusCode: 200, body: {} });
+      await expect(fetchXaiQuota(baseFile({ type: 'xai' }), t)).rejects.toThrow(
+        'xai_quota.empty_data'
+      );
+    });
+
+    it('parses billing summary from camelCase response fields', async () => {
+      apiCallMock.mockResolvedValue({
+        statusCode: 200,
+        body: {
+          config: {
+            monthlyLimit: { val: 15000 },
+            used: { val: 3000 },
+            onDemandCap: { val: 5000 },
+            billingPeriodStart: '2026-05-01T00:00:00Z',
+            billingPeriodEnd: '2026-06-01T00:00:00Z',
+          },
+        },
+      });
+
+      const result = await fetchXaiQuota(baseFile({ type: 'xai' }), t);
+
+      expect(result.monthlyLimitCents).toBe(15000);
+      expect(result.usedCents).toBe(3000);
+      expect(result.onDemandCapCents).toBe(5000);
+      expect(result.billingPeriodEnd).toBe('2026-06-01T00:00:00Z');
+      expect(result.usedPercent).toBeCloseTo(20, 5);
+    });
+
+    it('accepts snake_case fallbacks and plain-number cents', async () => {
+      apiCallMock.mockResolvedValue({
+        statusCode: 200,
+        body: {
+          config: {
+            monthly_limit: 10000,
+            used: 2500,
+            on_demand_cap: 0,
+            billing_period_end: '2026-06-01T00:00:00Z',
+          },
+        },
+      });
+
+      const result = await fetchXaiQuota(baseFile({ type: 'x-ai' }), t);
+
+      expect(result.monthlyLimitCents).toBe(10000);
+      expect(result.usedCents).toBe(2500);
+      expect(result.onDemandCapCents).toBe(0);
+      expect(result.usedPercent).toBeCloseTo(25, 5);
+    });
+
+    it('parses payload returned as a JSON string body', async () => {
+      apiCallMock.mockResolvedValue({
+        statusCode: 200,
+        body: JSON.stringify({
+          config: {
+            monthlyLimit: { val: 20000 },
+            used: { val: 5000 },
+            billingPeriodEnd: '2026-06-01T00:00:00Z',
+          },
+        }),
+      });
+
+      const result = await fetchXaiQuota(baseFile({ type: 'grok' }), t);
+
+      expect(result.monthlyLimitCents).toBe(20000);
+      expect(result.usedCents).toBe(5000);
+      expect(result.usedPercent).toBeCloseTo(25, 5);
+    });
+
+    it('reports null usedPercent when limit is unknown', async () => {
+      apiCallMock.mockResolvedValue({
+        statusCode: 200,
+        body: {
+          config: {
+            used: { val: 3000 },
+            billingPeriodEnd: '2026-06-01T00:00:00Z',
+          },
+        },
+      });
+
+      const result = await fetchXaiQuota(baseFile({ type: 'xai' }), t);
+
+      expect(result.monthlyLimitCents).toBeNull();
+      expect(result.usedCents).toBe(3000);
+      expect(result.usedPercent).toBeNull();
     });
   });
 });

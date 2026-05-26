@@ -80,6 +80,15 @@ function readCommercialModeFromYaml(yamlContent: string): boolean {
   }
 }
 
+function normalizeYamlForVisualDiff(yamlContent: string): string {
+  try {
+    const doc = parseDocument(yamlContent);
+    return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
+  } catch {
+    return yamlContent;
+  }
+}
+
 export function ConfigPage() {
   const { t } = useTranslation();
   const pageTransitionLayer = usePageTransitionLayer();
@@ -494,6 +503,7 @@ export function ConfigPage() {
     setSaving(true);
     try {
       const latestServerYaml = await configFileApi.fetchConfigYaml();
+      const visualBaseYaml = dirty ? content : latestServerYaml;
 
       if (activeTab !== 'source') {
         const latestDocument = parseDocument(latestServerYaml);
@@ -508,23 +518,34 @@ export function ConfigPage() {
           );
           return;
         }
+
+        if (visualBaseYaml !== latestServerYaml) {
+          const visualBaseDocument = parseDocument(visualBaseYaml);
+          if (visualBaseDocument.errors.length > 0) {
+            showNotification(
+              t('config_management.visual_mode_latest_yaml_invalid', {
+                message:
+                  visualBaseDocument.errors[0]?.message ??
+                  t('config_management.visual_mode_save_blocked'),
+              }),
+              'error'
+            );
+            return;
+          }
+        }
       }
 
-      // In source mode, save exactly what the user edited. In visual mode, materialize visual changes into the latest YAML.
+      // In source mode, save exactly what the user edited. In visual mode, preserve
+      // unsaved source edits as the visual patch base so backend-only fields survive.
       const nextMergedYaml =
-        activeTab === 'source' ? content : applyVisualChangesToYaml(latestServerYaml);
+        activeTab === 'source' ? content : applyVisualChangesToYaml(visualBaseYaml);
 
       // In visual mode, applyVisualChangesToYaml re-serializes YAML via parseDocument → toString,
       // which may reformat comments/whitespace. Normalize the server YAML through the same pipeline
       // so the diff only shows actual value changes, not cosmetic reformatting.
       let diffOriginal = latestServerYaml;
       if (activeTab !== 'source') {
-        try {
-          const doc = parseDocument(latestServerYaml);
-          diffOriginal = doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
-        } catch {
-          /* keep raw on parse failure */
-        }
+        diffOriginal = normalizeYamlForVisualDiff(latestServerYaml);
       }
 
       if (diffOriginal === nextMergedYaml) {

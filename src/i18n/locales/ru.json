@@ -111,6 +111,7 @@
     "submit_button": "Войти",
     "submitting": "Подключение...",
     "error_title": "Ошибка входа",
+    "error_backend_detail": "Ответ сервера",
     "error_required": "Пожалуйста, заполните все данные подключения",
     "error_invalid": "Подключение не удалось, проверьте адрес и ключ",
     "error_network": "Сетевая ошибка, проверьте подключение или адрес сервера",
@@ -793,6 +794,22 @@
     "limit_window": "Лимит {{duration}}",
     "limit_index": "Лимит #{{index}}",
     "reset_hint": "сброс через {{hint}}"
+  },
+  "xai_quota": {
+    "title": "Квота Grok",
+    "empty_title": "Файлы авторизации xAI/Grok отсутствуют",
+    "empty_desc": "Загрузите учётные данные xAI/Grok, чтобы увидеть квоту.",
+    "idle": "Не загружено. Нажмите \"Обновить квоту\".",
+    "loading": "Загрузка квоты...",
+    "load_failed": "Не удалось загрузить квоту: {{message}}",
+    "missing_auth_index": "В файле авторизации отсутствует auth_index",
+    "empty_data": "Данные по квоте отсутствуют",
+    "refresh_button": "Обновить квоту",
+    "fetch_all": "Получить все",
+    "monthly_credits": "Месячные кредиты",
+    "pay_as_you_go_label": "Оплата по факту",
+    "pay_as_you_go_enabled": "Включено, лимит {{cap}}",
+    "pay_as_you_go_disabled": "Отключено"
   },
   "vertex_import": {
     "title": "Вход с Vertex JSON",

@@ -113,6 +113,7 @@
     "submit_button": "Login",
     "submitting": "Connecting...",
     "error_title": "Login Failed",
+    "error_backend_detail": "Backend response",
     "error_required": "Please fill in complete connection information",
     "error_invalid": "Connection failed, please check address and key",
     "error_network": "Network connection failed, please check your network or server address",
@@ -798,6 +799,22 @@
     "limit_window": "{{duration}} limit",
     "limit_index": "Limit #{{index}}",
     "reset_hint": "resets in {{hint}}"
+  },
+  "xai_quota": {
+    "title": "Grok Quota",
+    "empty_title": "No xAI/Grok Auth Files",
+    "empty_desc": "Upload an xAI/Grok credential to view quota.",
+    "idle": "Click here to refresh quota",
+    "loading": "Loading quota...",
+    "load_failed": "Failed to load quota: {{message}}",
+    "missing_auth_index": "Auth file missing auth_index",
+    "empty_data": "No quota data available",
+    "refresh_button": "Refresh Quota",
+    "fetch_all": "Fetch All",
+    "monthly_credits": "Monthly credits",
+    "pay_as_you_go_label": "Pay as you go",
+    "pay_as_you_go_enabled": "Enabled, cap {{cap}}",
+    "pay_as_you_go_disabled": "Disabled"
   },
   "vertex_import": {
     "title": "Vertex JSON Login",

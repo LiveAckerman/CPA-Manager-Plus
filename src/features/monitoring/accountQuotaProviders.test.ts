@@ -238,6 +238,84 @@ describe('fetchAccountQuotaEntry', () => {
     expect(entry.windows[0].remainingPercent).toBe(95);
   });
 
+  it('maps xAI billing into a monthly-credits window and pay-as-you-go subtitle', async () => {
+    apiCallMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        config: {
+          monthlyLimit: { val: 15000 },
+          used: { val: 4500 },
+          onDemandCap: { val: 5000 },
+          billingPeriodEnd: '2026-06-01T00:00:00Z',
+        },
+      },
+    });
+
+    const entry = await fetchAccountQuotaEntry(
+      baseTarget({ provider: 'xai' }),
+      baseFile({ type: 'xai' }),
+      t
+    );
+
+    expect(entry.error).toBeUndefined();
+    expect(entry.windows).toHaveLength(1);
+    expect(entry.windows[0].id).toBe('monthly-credits');
+    expect(entry.windows[0].label).toBe('xai_quota.monthly_credits');
+    expect(entry.windows[0].remainingPercent).toBeCloseTo(70, 5);
+    expect(entry.windows[0].usageLabel).toContain('$');
+    expect(entry.windows[0].usageLabel).toContain('/');
+    expect(entry.subtitle).toContain('xai_quota.pay_as_you_go_label');
+    expect(entry.subtitle).toContain('xai_quota.pay_as_you_go_enabled');
+  });
+
+  it('uses the disabled pay-as-you-go label when onDemandCap is zero or missing', async () => {
+    apiCallMock.mockResolvedValue({
+      statusCode: 200,
+      body: {
+        config: {
+          monthly_limit: { val: 10000 },
+          used: { val: 2500 },
+          billing_period_end: '2026-06-01T00:00:00Z',
+        },
+      },
+    });
+
+    const entry = await fetchAccountQuotaEntry(
+      baseTarget({ provider: 'xai' }),
+      baseFile({ type: 'x-ai' }),
+      t
+    );
+
+    expect(entry.error).toBeUndefined();
+    expect(entry.subtitle).toContain('xai_quota.pay_as_you_go_disabled');
+    expect(entry.windows[0].remainingPercent).toBeCloseTo(75, 5);
+  });
+
+  it('returns error entry when xAI fetch returns non-2xx', async () => {
+    apiCallMock.mockResolvedValue({ statusCode: 403, body: null });
+
+    const entry = await fetchAccountQuotaEntry(
+      baseTarget({ provider: 'xai' }),
+      baseFile({ type: 'xai' }),
+      t
+    );
+
+    expect(entry.error).toBe('HTTP 403');
+    expect(entry.errorStatus).toBe(403);
+    expect(entry.windows).toEqual([]);
+  });
+
+  it('returns error entry when xAI auth file is missing', async () => {
+    const entry = await fetchAccountQuotaEntry(
+      baseTarget({ provider: 'xai' }),
+      undefined,
+      t
+    );
+
+    expect(entry.error).toBe('xai_quota.missing_auth_index');
+    expect(entry.windows).toEqual([]);
+  });
+
   it('returns error entry when a non-Codex provider receives no file', async () => {
     const entry = await fetchAccountQuotaEntry(
       baseTarget({ provider: 'claude' }),
