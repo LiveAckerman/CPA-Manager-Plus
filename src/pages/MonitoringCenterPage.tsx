@@ -89,6 +89,7 @@ import {
 } from '@/features/monitoring/healthStatusAccessibility';
 import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
 import { MonitoringPanel } from '@/features/monitoring/components/MonitoringPanel';
+import { MonitoringImagePoolBlock } from '@/features/monitoring/components/MonitoringImagePoolBlock';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useInterval } from '@/hooks/useInterval';
@@ -3810,6 +3811,8 @@ export function MonitoringCenterPage() {
           t={t}
         />
       </MonitoringPanel>
+
+      <MonitoringImagePoolBlock />
 
       <Modal
         open={isCustomRangeModalOpen}

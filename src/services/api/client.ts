@@ -216,6 +216,45 @@ class ApiClient {
   }
 
   /**
+   * Panel-relative request. The normal {get,post,...} methods all apply
+   * `/v0/management` as a baseURL prefix (that's where the admin API lives).
+   * Some routes — `/v0/image/*`, `/v1/*` passthrough, etc. — sit *next to*
+   * `/v0/management` on the same panel host, not under it. This helper
+   * strips the management suffix so the call lands at the right place.
+   */
+  private panelRoot(): string {
+    return this.apiBase.replace(/\/v0\/management\/?$/, '');
+  }
+
+  /**
+   * Build an absolute URL relative to the panel root. We must hand axios a
+   * full URL (with scheme) rather than relying on baseURL: the request
+   * interceptor unconditionally overrides config.baseURL with this.apiBase,
+   * so any per-call baseURL override is lost. Absolute URLs short-circuit
+   * baseURL composition in axios.
+   */
+  private buildPanelUrl(path: string): string {
+    const root = this.panelRoot();
+    if (!root) return path; // dev fallback — let the browser resolve.
+    const tail = path.startsWith('/') ? path : `/${path}`;
+    return `${root}${tail}`;
+  }
+
+  async panelGet<T = unknown>(path: string, config?: AxiosRequestConfig): Promise<T> {
+    const response = await this.instance.get<T>(this.buildPanelUrl(path), config);
+    return response.data;
+  }
+
+  async panelPost<T = unknown>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig
+  ): Promise<T> {
+    const response = await this.instance.post<T>(this.buildPanelUrl(path), data, config);
+    return response.data;
+  }
+
+  /**
    * 发送 FormData
    */
   async postForm<T = unknown>(
