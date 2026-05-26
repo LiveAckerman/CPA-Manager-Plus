@@ -1591,7 +1591,11 @@
     "image_pool_status_fresh": "未重新整理",
     "image_pool_status_active": "正常",
     "image_pool_status_invalid": "失效",
-    "image_pool_empty": "池中尚無帳號。"
+    "image_pool_empty": "池中尚無帳號。",
+    "image_pool_prev_page": "上一頁",
+    "image_pool_next_page": "下一頁",
+    "image_pool_page_x_of_y": "第 {{current}} / {{total}} 頁",
+    "image_pool_last_refresh_prefix": "上次重新整理"
   },
   "logs": {
     "title": "記錄檢視",
