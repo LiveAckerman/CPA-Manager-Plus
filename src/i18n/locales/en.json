@@ -1567,7 +1567,11 @@
     "image_pool_status_fresh": "fresh",
     "image_pool_status_active": "active",
     "image_pool_status_invalid": "invalid",
-    "image_pool_empty": "No accounts in pool."
+    "image_pool_empty": "No accounts in pool.",
+    "image_pool_prev_page": "Previous",
+    "image_pool_next_page": "Next",
+    "image_pool_page_x_of_y": "Page {{current}} / {{total}}",
+    "image_pool_last_refresh_prefix": "Last refresh:"
   },
   "logs": {
     "title": "Logs Viewer",

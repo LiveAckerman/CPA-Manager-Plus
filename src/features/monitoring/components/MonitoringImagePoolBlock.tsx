@@ -6,17 +6,23 @@
  * left across them, success/fail counters, and a paginated/sortable table
  * of every account in the pool.
  *
- * The refresh button forces a /backend-api/me round-trip for every pool
+ * The refresh button forces a get_user_info() round-trip for every pool
  * account (downloading the access_token from CPA first if not cached).
  * That fills in the `quota` numbers, which otherwise stay at 0+unknown
  * until each account is first used for a real image gen. See
  * `imagePool.ts` for the safety argument (no refresh_token rotation).
+ *
+ * Colour conventions match the page's existing monitoring styles:
+ *   - status badges: active=green / fresh=amber / invalid=red
+ *   - quota cell: 0=red, 1-5=amber, >5=green, unknown=muted
+ *   - success summary uses good tone; fail summary uses bad tone when >0.
  */
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
@@ -38,7 +44,7 @@ type SortMode =
   | 'last-used-desc'
   | 'email-asc';
 
-// Match how the rest of the monitoring page mask emails (see
+// Match how the rest of the monitoring page masks emails (see
 // useMonitoringData.maskEmailLike). Tiny copy because that helper isn't
 // exported.
 const maskEmail = (email: string): string => {
@@ -55,6 +61,32 @@ const formatLastUsed = (epochSeconds: number, locale: string): string => {
   } catch {
     return '—';
   }
+};
+
+// Quota cell colour mapping. Picked so the table can be skim-scanned at a
+// glance: red means "out", amber means "running low", green means "plenty".
+const quotaTone = (quota: number, unknown: boolean): 'good' | 'warn' | 'bad' | null => {
+  if (unknown) return null;
+  if (quota <= 0) return 'bad';
+  if (quota <= 5) return 'warn';
+  return 'good';
+};
+
+const statusTone = (status: ImagePoolAccountStatus): 'good' | 'warn' | 'bad' => {
+  switch (status) {
+    case 'active':
+      return 'good';
+    case 'fresh':
+      return 'warn';
+    case 'invalid':
+    default:
+      return 'bad';
+  }
+};
+
+const toneClass = (tone: 'good' | 'warn' | 'bad' | null | undefined): string => {
+  if (!tone) return '';
+  return tone === 'good' ? styles.tonegood : tone === 'warn' ? styles.tonewarn : styles.tonebad;
 };
 
 const PAGE_SIZE = 20;
@@ -137,9 +169,6 @@ export function MonitoringImagePoolBlock() {
     switch (sortMode) {
       case 'quota-desc':
         copy.sort((a, b) => {
-          // Unknown quota sinks to end — they're not "0 left", they're "we
-          // don't know yet". Distinguishing them is the whole point of the
-          // quota_unknown flag.
           if (a.quota_unknown && !b.quota_unknown) return 1;
           if (!a.quota_unknown && b.quota_unknown) return -1;
           return (b.quota || 0) - (a.quota || 0);
@@ -168,8 +197,7 @@ export function MonitoringImagePoolBlock() {
     currentPage * PAGE_SIZE
   );
 
-  // Reset to page 1 when the sort changes — keeps the user looking at the
-  // top of the newly-ordered list.
+  // Reset to page 1 when the sort changes.
   useEffect(() => {
     setPage(1);
   }, [sortMode]);
@@ -189,26 +217,80 @@ export function MonitoringImagePoolBlock() {
     t(`monitoring.image_pool_status_${status}`);
 
   const remainingValueText = stats.unknownQuota
-    ? `${stats.totalRemaining} (${t('monitoring.image_pool_n_unknown', { count: stats.unknownQuota })})`
+    ? `${stats.totalRemaining}`
     : `${stats.totalRemaining}`;
+
+  // Inline style fragments. Kept here rather than in CSS so this component
+  // stays drop-in; the colour values come from the page-level CSS variables.
+  const refreshSummaryStyle: CSSProperties = {
+    display: 'inline-flex',
+    gap: 6,
+    alignItems: 'center',
+    fontSize: 12,
+    color: 'var(--monitor-muted, #888)',
+  };
+  const refreshChipStyle = (tone: 'good' | 'warn' | 'bad' | null): CSSProperties => ({
+    padding: '2px 8px',
+    borderRadius: 999,
+    fontWeight: 600,
+    background:
+      tone === 'good'
+        ? 'color-mix(in srgb, var(--monitor-green) 12%, transparent)'
+        : tone === 'warn'
+          ? 'color-mix(in srgb, var(--monitor-amber) 12%, transparent)'
+          : tone === 'bad'
+            ? 'color-mix(in srgb, var(--monitor-red) 12%, transparent)'
+            : 'transparent',
+    color:
+      tone === 'good'
+        ? 'var(--monitor-green)'
+        : tone === 'warn'
+          ? 'var(--monitor-amber)'
+          : tone === 'bad'
+            ? 'var(--monitor-red)'
+            : 'inherit',
+  });
+  const toolbarRowStyle: CSSProperties = {
+    display: 'flex',
+    gap: 12,
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  };
+  const tableCellTone: CSSProperties = { fontWeight: 600 };
 
   return (
     <MonitoringPanel
       title={t('monitoring.image_pool_title')}
       subtitle={t('monitoring.image_pool_subtitle')}
       extra={
-        <div className={styles.realtimeHeaderActions}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 12,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           {lastRefreshResult ? (
-            <span title={JSON.stringify(lastRefreshResult, null, 2)}>
-              {t('monitoring.image_pool_last_refresh_summary', {
-                refreshed: lastRefreshResult.refreshed,
-                invalidated: lastRefreshResult.invalidated,
-                errors: lastRefreshResult.errors,
-              })}
+            <span style={refreshSummaryStyle}>
+              <span>{t('monitoring.image_pool_last_refresh_prefix')}</span>
+              <span style={refreshChipStyle('good')}>
+                ✓ {lastRefreshResult.refreshed}
+              </span>
+              <span
+                style={refreshChipStyle(lastRefreshResult.invalidated ? 'warn' : null)}
+              >
+                ⊘ {lastRefreshResult.invalidated}
+              </span>
+              <span style={refreshChipStyle(lastRefreshResult.errors ? 'bad' : null)}>
+                ⚠ {lastRefreshResult.errors}
+              </span>
             </span>
           ) : null}
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
             onClick={() => void handleRefreshClick()}
             disabled={refreshing || loading}
@@ -220,13 +302,9 @@ export function MonitoringImagePoolBlock() {
         </div>
       }
     >
-      {error ? (
-        <div className={styles.errorBanner}>{error}</div>
-      ) : null}
+      {error ? <div className={styles.errorBanner}>{error}</div> : null}
 
-      {/* Summary cards — match the visual language of the page's other
-          summary blocks even though we can't import the private SummaryCard
-          component without disturbing the existing file. */}
+      {/* Summary cards — match the page's existing summary-card styling. */}
       <div className={styles.summarySub}>
         <Card className={`${styles.summaryCard} ${styles.summaryCardSecondary}`}>
           <span className={styles.summaryLabel}>
@@ -234,18 +312,20 @@ export function MonitoringImagePoolBlock() {
           </span>
           <strong className={styles.summaryValue}>{stats.total}</strong>
           <span className={styles.summaryMeta}>
-            {t('monitoring.image_pool_status_breakdown', {
-              fresh: stats.statusCounts.fresh,
-              active: stats.statusCounts.active,
-              invalid: stats.statusCounts.invalid,
-            })}
+            <span className={styles.tonegood}>● {stats.statusCounts.active}</span>{' '}
+            <span className={styles.tonewarn}>● {stats.statusCounts.fresh}</span>{' '}
+            <span className={styles.tonebad}>● {stats.statusCounts.invalid}</span>
           </span>
         </Card>
         <Card className={`${styles.summaryCard} ${styles.summaryCardSecondary}`}>
           <span className={styles.summaryLabel}>
             {t('monitoring.image_pool_total_remaining_quota')}
           </span>
-          <strong className={styles.summaryValue}>{remainingValueText}</strong>
+          <strong
+            className={`${styles.summaryValue} ${stats.totalRemaining > 0 ? styles.tonegood : ''}`}
+          >
+            {remainingValueText}
+          </strong>
           <span className={styles.summaryMeta}>
             {t('monitoring.image_pool_quota_meta', {
               known: stats.knownQuota,
@@ -257,7 +337,9 @@ export function MonitoringImagePoolBlock() {
           <span className={styles.summaryLabel}>
             {t('monitoring.image_pool_total_success')}
           </span>
-          <strong className={styles.summaryValue}>{stats.totalSuccess}</strong>
+          <strong className={`${styles.summaryValue} ${styles.tonegood}`}>
+            {stats.totalSuccess}
+          </strong>
           <span className={styles.summaryMeta}>
             {t('monitoring.image_pool_inflight', { count: stats.totalInflight })}
           </span>
@@ -266,7 +348,11 @@ export function MonitoringImagePoolBlock() {
           <span className={styles.summaryLabel}>
             {t('monitoring.image_pool_total_fail')}
           </span>
-          <strong className={styles.summaryValue}>{stats.totalFail}</strong>
+          <strong
+            className={`${styles.summaryValue} ${stats.totalFail > 0 ? styles.tonebad : ''}`}
+          >
+            {stats.totalFail}
+          </strong>
           <span className={styles.summaryMeta}>
             {stats.totalSuccess + stats.totalFail > 0
               ? `${((stats.totalSuccess / (stats.totalSuccess + stats.totalFail)) * 100).toFixed(1)}% ${t('monitoring.image_pool_success_rate')}`
@@ -275,15 +361,20 @@ export function MonitoringImagePoolBlock() {
         </Card>
       </div>
 
-      {/* Sort dropdown */}
-      <div className={styles.accountOverviewToolbarRow} style={{ marginTop: 12 }}>
+      {/* Sort + summary line */}
+      <div style={toolbarRowStyle}>
+        <label
+          style={{ fontSize: 12, color: 'var(--monitor-muted, #888)', marginRight: -4 }}
+        >
+          {t('monitoring.image_pool_sort_label')}
+        </label>
         <Select
           value={sortMode}
           options={sortOptions}
           onChange={(value) => setSortMode(value as SortMode)}
           ariaLabel={t('monitoring.image_pool_sort_label')}
         />
-        <span style={{ marginLeft: 'auto', color: 'var(--muted, #888)' }}>
+        <span style={{ marginLeft: 'auto', color: 'var(--monitor-muted, #888)', fontSize: 13 }}>
           {t('monitoring.image_pool_pagination_summary', {
             start: sortedAccounts.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1,
             end: Math.min(currentPage * PAGE_SIZE, sortedAccounts.length),
@@ -309,22 +400,57 @@ export function MonitoringImagePoolBlock() {
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--muted, #888)' }}>
+                <td
+                  colSpan={7}
+                  style={{
+                    textAlign: 'center',
+                    padding: 24,
+                    color: 'var(--monitor-muted, #888)',
+                  }}
+                >
                   {loading ? t('common.loading') : t('monitoring.image_pool_empty')}
                 </td>
               </tr>
             ) : (
-              pageItems.map((acct) => (
-                <tr key={acct.file_name}>
-                  <td title={acct.email}>{maskEmail(acct.email)}</td>
-                  <td>{statusLabel(acct.status)}</td>
-                  <td>{acct.quota_unknown ? '?' : acct.quota}</td>
-                  <td>{acct.success}</td>
-                  <td>{acct.fail}</td>
-                  <td>{acct.inflight}</td>
-                  <td>{formatLastUsed(acct.last_used_at, i18n.language)}</td>
-                </tr>
-              ))
+              pageItems.map((acct) => {
+                const sTone = statusTone(acct.status);
+                const qTone = quotaTone(acct.quota, acct.quota_unknown);
+                const failTone = acct.fail > 0 ? 'bad' : null;
+                return (
+                  <tr key={acct.file_name}>
+                    <td title={acct.email}>{maskEmail(acct.email)}</td>
+                    <td>
+                      <span className={`${styles.statusBadge} ${toneClass(sTone)}`}>
+                        {statusLabel(acct.status)}
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        className={toneClass(qTone)}
+                        style={tableCellTone}
+                      >
+                        {acct.quota_unknown ? '?' : acct.quota}
+                      </span>
+                    </td>
+                    <td>
+                      {acct.success > 0 ? (
+                        <span className={styles.tonegood} style={tableCellTone}>
+                          {acct.success}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--monitor-muted, #888)' }}>0</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={toneClass(failTone)} style={tableCellTone}>
+                        {acct.fail}
+                      </span>
+                    </td>
+                    <td>{acct.inflight > 0 ? acct.inflight : '—'}</td>
+                    <td>{formatLastUsed(acct.last_used_at, i18n.language)}</td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -338,7 +464,7 @@ export function MonitoringImagePoolBlock() {
             gap: 8,
             justifyContent: 'center',
             alignItems: 'center',
-            marginTop: 12,
+            marginTop: 16,
           }}
         >
           <Button
@@ -347,10 +473,13 @@ export function MonitoringImagePoolBlock() {
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={currentPage <= 1}
           >
-            {t('common.previous_page')}
+            {t('monitoring.image_pool_prev_page')}
           </Button>
-          <span>
-            {t('common.page_x_of_y', { current: currentPage, total: totalPages })}
+          <span style={{ fontSize: 13, color: 'var(--monitor-muted, #888)' }}>
+            {t('monitoring.image_pool_page_x_of_y', {
+              current: currentPage,
+              total: totalPages,
+            })}
           </span>
           <Button
             variant="ghost"
@@ -358,7 +487,7 @@ export function MonitoringImagePoolBlock() {
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages}
           >
-            {t('common.next_page')}
+            {t('monitoring.image_pool_next_page')}
           </Button>
         </div>
       ) : null}

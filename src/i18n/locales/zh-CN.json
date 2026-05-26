@@ -1567,7 +1567,11 @@
     "image_pool_status_fresh": "未刷新",
     "image_pool_status_active": "正常",
     "image_pool_status_invalid": "失效",
-    "image_pool_empty": "号池暂无账号。"
+    "image_pool_empty": "号池暂无账号。",
+    "image_pool_prev_page": "上一页",
+    "image_pool_next_page": "下一页",
+    "image_pool_page_x_of_y": "第 {{current}} / {{total}} 页",
+    "image_pool_last_refresh_prefix": "上次刷新"
   },
   "logs": {
     "title": "日志查看",
