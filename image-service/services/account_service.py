@@ -268,9 +268,138 @@ class AccountService:
             return [a.access_token for a in self._accounts.values() if a.quota == 0 and a.access_token]
 
     def refresh_accounts(self, tokens: Iterable[str]) -> dict[str, Any]:
-        """Compat shim. Background loop already drives refresh; this is a
-        no-op that returns a result-shaped dict for any caller that expects it."""
-        return {"refreshed": 0}
+        """Compat shim for callers that supply an explicit token list."""
+        return self.refresh_quotas(tokens=list(tokens), include_uncached=False)
+
+    def refresh_quotas(
+        self,
+        tokens: list[str] | None = None,
+        include_uncached: bool = True,
+    ) -> dict[str, Any]:
+        """Force a quota refresh against ChatGPT for each pooled account.
+
+        Mirrors the vendor chatgpt2api refresh path (parallel /backend-api/me
+        calls with bounded concurrency) so the diagnostic panel can show real
+        `image_gen.remaining` numbers instead of perpetual "unknown".
+
+        Safety: this method is read-only with respect to refresh_token. It
+        calls ChatGPT's `/backend-api/me` (an info endpoint that issues no
+        new tokens) and optionally CPA's `/v0/management/auth-files/download`
+        (which returns the access_token CPA already holds — it does NOT ask
+        CPA to rotate anything). The OAuth refresh_token grant endpoint
+        (`auth.openai.com/oauth/token`) is never called from this path.
+
+        Parameters
+        ----------
+        tokens : list[str] | None
+            If provided, refresh only the accounts whose currently-cached
+            access_token is in this list. If None, refresh every account.
+        include_uncached : bool
+            When True and `tokens` is None, "fresh" accounts (no cached
+            access_token yet) are eagerly downloaded from CPA before being
+            refreshed. Default True so a single button click populates the
+            whole pool. Pass False for the cheap "refresh what we have"
+            mode used by the legacy compat shim.
+
+        Concurrency is capped at 10 workers — same ceiling as the vendor
+        used. /backend-api/me calls take ~0.5-2s each; 130 accounts at 10
+        concurrent finishes in roughly 10-30s.
+
+        Returns a summary dict with success / invalid / error / skipped
+        counts plus the total pool size, suitable for direct JSON return.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from services.openai_backend_api import (
+            InvalidAccessTokenError,
+            OpenAIBackendAPI,
+        )
+
+        with self._lock:
+            all_accts = list(self._accounts.values())
+
+        if tokens is not None:
+            wanted = {t for t in tokens if t}
+            targets = [a for a in all_accts if a.access_token and a.access_token in wanted]
+            uncached: list[_AccountState] = []
+        else:
+            targets = [a for a in all_accts if a.access_token]
+            uncached = [a for a in all_accts if not a.access_token] if include_uncached else []
+
+        # Phase 1: download access_tokens for "fresh" accounts so we have
+        # something to call /me with. Bounded by the same worker pool — CPA
+        # is local-network and quick, but no need to hammer it either.
+        downloaded = 0
+        download_failed = 0
+        if uncached:
+            def _ensure_token(acct: _AccountState) -> _AccountState | None:
+                try:
+                    token = self._download_token_from_cpa(acct.file_name)
+                except Exception as exc:
+                    logger.warning("refresh: CPA download failed for %s: %s", acct.email, exc)
+                    return None
+                with self._lock:
+                    acct.access_token = token
+                return acct
+
+            with ThreadPoolExecutor(max_workers=min(10, len(uncached))) as ex:
+                for fut in as_completed({ex.submit(_ensure_token, a): a for a in uncached}):
+                    result = fut.result()
+                    if result is not None:
+                        downloaded += 1
+                        targets.append(result)
+                    else:
+                        download_failed += 1
+
+        # Phase 2: hit /backend-api/me per account, extract image_gen quota,
+        # update in-memory state. Invalid tokens just get their access_token
+        # cleared via the existing remove_invalid_token() helper — that does
+        # NOT touch CPA or the refresh_token.
+        success = 0
+        invalidated = 0
+        errors = 0
+
+        def _refresh_one(acct: _AccountState) -> str:
+            token = acct.access_token
+            if not token:
+                return "skipped"
+            try:
+                me_payload = OpenAIBackendAPI(access_token=token)._get_me()
+            except InvalidAccessTokenError:
+                self.remove_invalid_token(token, "refresh_quotas")
+                return "invalid"
+            except Exception as exc:
+                logger.warning("refresh: /me failed for %s: %s", acct.email, exc)
+                return "error"
+            limits = me_payload.get("limits_progress") or []
+            remaining, _restore_at, unknown = OpenAIBackendAPI._extract_quota_and_restore_at(limits)
+            with self._lock:
+                acct.quota = int(remaining)
+                acct.quota_unknown = bool(unknown)
+                # Promote from "fresh" once we've successfully heard back.
+                if acct.status == "fresh":
+                    acct.status = "active"
+            return "ok"
+
+        if targets:
+            with ThreadPoolExecutor(max_workers=min(10, len(targets))) as ex:
+                for fut in as_completed({ex.submit(_refresh_one, a): a for a in targets}):
+                    outcome = fut.result()
+                    if outcome == "ok":
+                        success += 1
+                    elif outcome == "invalid":
+                        invalidated += 1
+                    elif outcome == "error":
+                        errors += 1
+
+        return {
+            "total_accounts": len(all_accts),
+            "refreshed": success,
+            "invalidated": invalidated,
+            "errors": errors,
+            "downloaded_from_cpa": downloaded,
+            "download_failed": download_failed,
+            "skipped": len(all_accts) - success - invalidated - errors - download_failed,
+        }
 
     # ----- internal helpers -----
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -49,6 +50,23 @@ def create_app() -> FastAPI:
         # Diagnostic: returns redacted account list so operators can see
         # what's in the pool without exposing access tokens.
         return {"items": account_service.list_accounts_redacted()}
+
+    @app.post("/api/accounts/refresh")
+    async def refresh_account_quotas(include_uncached: bool = True):
+        # Force-refresh each pooled account's image_gen quota by hitting
+        # ChatGPT's /backend-api/me. Pure READ — never touches refresh_token,
+        # never calls any OAuth grant endpoint. See refresh_quotas() docstring
+        # for the full safety argument.
+        #
+        # Default include_uncached=True so "fresh" accounts (no cached token
+        # yet) get their token pulled from CPA and refreshed in one shot —
+        # what an operator clicking the diagnostic panel's "refresh" button
+        # actually wants. Pass ?include_uncached=false for the cheap "only
+        # what's already warm" path.
+        result = await run_in_threadpool(
+            account_service.refresh_quotas, None, include_uncached
+        )
+        return result
 
     @app.get("/images/{image_path:path}", include_in_schema=False)
     async def serve_image(image_path: str):
