@@ -363,18 +363,22 @@ class AccountService:
             if not token:
                 return "skipped"
             try:
-                me_payload = OpenAIBackendAPI(access_token=token)._get_me()
+                # IMPORTANT: image_gen.remaining lives in /backend-api/conversation/init,
+                # NOT /backend-api/me. get_user_info() fans out to /me + /init +
+                # /accounts/check in parallel and merges them; we only need the
+                # quota fields it extracts. Matches the vendor refresh path.
+                info = OpenAIBackendAPI(access_token=token).get_user_info()
             except InvalidAccessTokenError:
                 self.remove_invalid_token(token, "refresh_quotas")
                 return "invalid"
             except Exception as exc:
-                logger.warning("refresh: /me failed for %s: %s", acct.email, exc)
+                logger.warning("refresh: get_user_info failed for %s: %s", acct.email, exc)
                 return "error"
-            limits = me_payload.get("limits_progress") or []
-            remaining, _restore_at, unknown = OpenAIBackendAPI._extract_quota_and_restore_at(limits)
+            remaining = int(info.get("quota") or 0)
+            unknown = bool(info.get("image_quota_unknown", True))
             with self._lock:
-                acct.quota = int(remaining)
-                acct.quota_unknown = bool(unknown)
+                acct.quota = remaining
+                acct.quota_unknown = unknown
                 # Promote from "fresh" once we've successfully heard back.
                 if acct.status == "fresh":
                     acct.status = "active"
