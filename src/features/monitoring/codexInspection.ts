@@ -838,9 +838,17 @@ const resolveLegacyProbeAction = (
 ): CodexInspectionDecision => {
   const overThreshold = usedPercent !== null && usedPercent >= threshold;
   if (statusCode === 401) {
+    if (account.disabled) {
+      return {
+        action: 'keep',
+        actionReason: '接口返回 401，需要重新登录，但账号已禁用',
+        usedPercent,
+        isQuota: false,
+      };
+    }
     return {
-      action: 'delete',
-      actionReason: '接口返回 401，建议删除失效账号',
+      action: 'disable',
+      actionReason: '接口返回 401，需要重新登录，建议禁用账号',
       usedPercent,
       isQuota: false,
     };
@@ -906,9 +914,17 @@ const resolveWindowAwareProbeAction = (
   const shortTermLabel = formatInspectionWindowLabel(shortTermWindow);
 
   if (statusCode === 401) {
+    if (account.disabled) {
+      return {
+        action: 'keep',
+        actionReason: '接口返回 401，需要重新登录，但账号已禁用',
+        usedPercent: longTermUsedPercent,
+        isQuota: false,
+      };
+    }
     return {
-      action: 'delete',
-      actionReason: '接口返回 401，建议删除失效账号',
+      action: 'disable',
+      actionReason: '接口返回 401，需要重新登录，建议禁用账号',
       usedPercent: longTermUsedPercent,
       isQuota: false,
     };

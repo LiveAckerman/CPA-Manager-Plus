@@ -319,6 +319,97 @@ describe('createCodexInspectionSession', () => {
       },
     ]);
   });
+
+  it('disables enabled accounts that need re-login when the probe returns 401', async () => {
+    vi.spyOn(authFilesApi, 'list').mockResolvedValue({
+      files: [
+        {
+          name: 'expired.json',
+          type: 'codex',
+          authIndex: '11',
+          account: 'expired@example.com',
+        } as AuthFileItem,
+      ],
+    });
+    requestCodexUsageRawMock.mockResolvedValue({
+      result: {
+        statusCode: 401,
+        hasStatusCode: true,
+        header: {},
+        bodyText: 'unauthorized',
+        body: null,
+      },
+      payload: null,
+    });
+
+    const session = createCodexInspectionSession({
+      config: null,
+      apiBase: 'https://cpa.example.test',
+      managementKey: 'management-token',
+      settings: {
+        targetType: 'codex',
+        workers: 1,
+        timeout: 1000,
+        usedPercentThreshold: 100,
+      },
+    });
+
+    const result = await session.start();
+
+    expect(result.results).toMatchObject([
+      {
+        action: 'disable',
+        actionReason: '接口返回 401，需要重新登录，建议禁用账号',
+        isQuota: false,
+      },
+    ]);
+  });
+
+  it('keeps already disabled accounts that return 401 without suggesting deletion', async () => {
+    vi.spyOn(authFilesApi, 'list').mockResolvedValue({
+      files: [
+        {
+          name: 'expired-disabled.json',
+          type: 'codex',
+          authIndex: '12',
+          account: 'expired-disabled@example.com',
+          disabled: true,
+        } as AuthFileItem,
+      ],
+    });
+    requestCodexUsageRawMock.mockResolvedValue({
+      result: {
+        statusCode: 401,
+        hasStatusCode: true,
+        header: {},
+        bodyText: 'unauthorized',
+        body: null,
+      },
+      payload: null,
+    });
+
+    const session = createCodexInspectionSession({
+      config: null,
+      apiBase: 'https://cpa.example.test',
+      managementKey: 'management-token',
+      settings: {
+        targetType: 'codex',
+        workers: 1,
+        timeout: 1000,
+        usedPercentThreshold: 100,
+      },
+    });
+
+    const result = await session.start();
+
+    expect(result.results).toMatchObject([
+      {
+        action: 'keep',
+        actionReason: '接口返回 401，需要重新登录，但账号已禁用',
+        isQuota: false,
+      },
+    ]);
+  });
 });
 
 describe('Codex inspection last-run cache', () => {
