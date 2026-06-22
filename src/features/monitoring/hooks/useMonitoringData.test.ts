@@ -3,8 +3,10 @@ import {
   buildAccountRows,
   buildApiKeyRows,
   buildApiKeyDisplayMap,
+  buildMonitoringFilterFacetsFromSummary,
   buildRangeFilteredRows,
   buildMonitoringAuthMetaMap,
+  getRangeBounds,
   type MonitoringEventRow,
 } from './useMonitoringData';
 import { sha256Hex } from '@/utils/apiKeyHash';
@@ -40,8 +42,13 @@ const createMonitoringEventRow = (
   channelHost: overrides.channelHost ?? 'example.com',
   channelDisabled: overrides.channelDisabled ?? false,
   failed: overrides.failed ?? false,
+  requestCount: overrides.requestCount ?? 1,
+  successCalls: overrides.successCalls ?? (overrides.failed ? 0 : 1),
+  failureCalls: overrides.failureCalls ?? (overrides.failed ? 1 : 0),
   statsIncluded: overrides.statsIncluded ?? true,
   latencyMs: overrides.latencyMs ?? 1200,
+  latencySumMs: overrides.latencySumMs ?? overrides.latencyMs ?? 1200,
+  latencyCount: overrides.latencyCount ?? 1,
   inputTokens: overrides.inputTokens ?? 10,
   outputTokens: overrides.outputTokens ?? 5,
   reasoningTokens: overrides.reasoningTokens ?? 0,
@@ -50,6 +57,18 @@ const createMonitoringEventRow = (
   totalCost: overrides.totalCost ?? 0.12,
   taskKey: overrides.taskKey ?? 'task-1',
   searchText: overrides.searchText ?? 'amount myth resend',
+});
+
+describe('getRangeBounds', () => {
+  it('returns the previous local day for yesterday', () => {
+    const nowMs = new Date(2026, 4, 9, 12, 34, 56, 789).getTime();
+    const bounds = getRangeBounds('yesterday', nowMs);
+
+    expect(bounds).toEqual({
+      startMs: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
+      endMs: new Date(2026, 4, 9, 0, 0, 0, 0).getTime(),
+    });
+  });
 });
 
 describe('buildAccountRows', () => {
@@ -152,6 +171,22 @@ describe('buildRangeFilteredRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].apiKeyHash).toBe('hash-b');
   });
+
+  it('matches text search when the derived api key hash does not match', () => {
+    const rows = buildRangeFilteredRows(
+      [
+        createMonitoringEventRow({ apiKeyHash: 'hash-a', searchText: 'kongwenpeng codex' }),
+        createMonitoringEventRow({ id: 'row-2', apiKeyHash: 'hash-b', searchText: 'other alias' }),
+      ],
+      'all',
+      null,
+      'KongWenpeng',
+      sha256Hex('KongWenpeng')
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].apiKeyHash).toBe('hash-a');
+  });
 });
 
 describe('buildMonitoringAuthMetaMap', () => {
@@ -193,5 +228,26 @@ describe('buildApiKeyDisplayMap', () => {
 
     expect(map.get(apiKeyHash)?.label).toContain('*');
     expect(map.get(apiKeyHash)?.label).not.toContain('ghp_1234567890abcdef');
+  });
+});
+
+describe('buildMonitoringFilterFacetsFromSummary', () => {
+  it('reads summary facets without requiring detail rows', () => {
+    const facets = buildMonitoringFilterFacetsFromSummary({
+      apis: {},
+      facets: {
+        providers: ['codex'],
+        accounts: [{ value: 'alice@example.com', label: 'Alice' }],
+        models: ['gpt-5'],
+        channels: ['codex'],
+        api_keys: [{ value: 'hash-a', label: 'Team A' }],
+      },
+    });
+
+    expect(facets.providers).toEqual(['codex']);
+    expect(facets.accounts).toEqual([{ value: 'alice@example.com', label: 'Alice' }]);
+    expect(facets.models).toEqual(['gpt-5']);
+    expect(facets.channels).toEqual(['codex']);
+    expect(facets.apiKeys).toEqual([{ value: 'hash-a', label: 'Team A' }]);
   });
 });

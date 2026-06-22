@@ -125,13 +125,13 @@ const normalizeApiKeyEntry = (entry: unknown): ApiKeyEntry | null => {
   const apiKey =
     record?.['api-key'] ?? record?.apiKey ?? record?.key ?? (typeof entry === 'string' ? entry : '');
   const trimmed = String(apiKey || '').trim();
-  if (!trimmed) return null;
-
-  const proxyUrl = record ? record['proxy-url'] ?? record.proxyUrl : undefined;
-  const headers = record ? normalizeHeaders(record.headers) : undefined;
   const authIndex = normalizeAuthIndex(
     record?.['auth-index'] ?? record?.authIndex ?? record?.['auth_index']
   );
+  if (!trimmed && !authIndex) return null;
+
+  const proxyUrl = record ? record['proxy-url'] ?? record.proxyUrl : undefined;
+  const headers = record ? normalizeHeaders(record.headers) : undefined;
 
   const result: ApiKeyEntry = {
     apiKey: trimmed,
@@ -147,7 +147,10 @@ const normalizeProviderKeyConfig = (item: unknown): ProviderKeyConfig | null => 
   const record = isRecord(item) ? item : null;
   const apiKey = record?.['api-key'] ?? record?.apiKey ?? (typeof item === 'string' ? item : '');
   const trimmed = String(apiKey || '').trim();
-  if (!trimmed) return null;
+  const authIndex = normalizeAuthIndex(
+    record?.['auth-index'] ?? record?.authIndex ?? record?.['auth_index']
+  );
+  if (!trimmed && !authIndex) return null;
 
   const config: ProviderKeyConfig = { apiKey: trimmed };
   const priority = record?.priority ?? record?.['priority'];
@@ -176,9 +179,6 @@ const normalizeProviderKeyConfig = (item: unknown): ProviderKeyConfig | null => 
       record?.excluded_models
   );
   if (excludedModels.length) config.excludedModels = excludedModels;
-  const authIndex = normalizeAuthIndex(
-    record?.['auth-index'] ?? record?.authIndex ?? record?.['auth_index']
-  );
   if (authIndex) config.authIndex = authIndex;
 
   const cloakRaw = record?.cloak;
@@ -216,7 +216,10 @@ const normalizeGeminiKeyConfig = (item: unknown): GeminiKeyConfig | null => {
     apiKey = item;
   }
   const trimmed = String(apiKey || '').trim();
-  if (!trimmed) return null;
+  const authIndex = normalizeAuthIndex(
+    record?.['auth-index'] ?? record?.authIndex ?? record?.['auth_index']
+  );
+  if (!trimmed && !authIndex) return null;
 
   const config: GeminiKeyConfig = { apiKey: trimmed };
   const priority = record?.priority ?? record?.['priority'];
@@ -238,9 +241,6 @@ const normalizeGeminiKeyConfig = (item: unknown): GeminiKeyConfig | null => {
   if (headers) config.headers = headers;
   const excludedModels = normalizeExcludedModels(record?.['excluded-models'] ?? record?.excludedModels);
   if (excludedModels.length) config.excludedModels = excludedModels;
-  const authIndex = normalizeAuthIndex(
-    record?.['auth-index'] ?? record?.authIndex ?? record?.['auth_index']
-  );
   if (authIndex) config.authIndex = authIndex;
   return config;
 };

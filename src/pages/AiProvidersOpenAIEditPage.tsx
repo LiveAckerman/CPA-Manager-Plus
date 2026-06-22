@@ -7,11 +7,13 @@ import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { Input } from '@/components/ui/Input';
 import { ModelInputList } from '@/components/ui/ModelInputList';
 import { Select } from '@/components/ui/Select';
+import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useNotificationStore } from '@/stores';
 import { apiCallApi, getApiCallErrorMessage } from '@/services/api';
 import type { ApiKeyEntry } from '@/types';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, hasHeader } from '@/utils/headers';
 import { buildApiKeyEntry, buildOpenAIChatCompletionsEndpoint } from '@/components/providers/utils';
 import type { OpenAIEditOutletContext } from './AiProvidersOpenAIEditLayout';
@@ -126,6 +128,7 @@ export function AiProvidersOpenAIEditPage() {
 
   const swipeRef = useEdgeSwipeBack({ onBack: handleBack });
   const [isTestingKeys, setIsTestingKeys] = useState(false);
+  const [visibleKeyIndexes, setVisibleKeyIndexes] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -139,7 +142,9 @@ export function AiProvidersOpenAIEditPage() {
 
   const canSave = !disableControls && !loading && !saving && !invalidIndexParam && !invalidIndex && !isTestingKeys;
   const hasConfiguredModels = form.modelEntries.some((entry) => entry.name.trim());
-  const hasTestableKeys = form.apiKeyEntries.some((entry) => entry.apiKey?.trim());
+  const hasTestableKeys = form.apiKeyEntries.some(
+    (entry) => entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)
+  );
   const modelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
     return form.modelEntries.reduce<Array<{ value: string; label: string }>>((acc, entry) => {
@@ -197,7 +202,8 @@ export function AiProvidersOpenAIEditPage() {
       }
 
       const keyEntry = form.apiKeyEntries[keyIndex];
-      if (!keyEntry?.apiKey?.trim()) {
+      const keyAuthIndex = normalizeAuthIndex(keyEntry?.authIndex) ?? undefined;
+      if (!keyEntry?.apiKey?.trim() && !keyAuthIndex) {
         setDraftKeyTestStatus(keyIndex, { status: 'error', message: t('notification.openai_test_key_required') });
         return false;
       }
@@ -214,7 +220,7 @@ export function AiProvidersOpenAIEditPage() {
         ...customHeaders,
       };
       if (!hasHeader(headers, 'authorization')) {
-        headers.Authorization = `Bearer ${keyEntry.apiKey.trim()}`;
+        headers.Authorization = keyAuthIndex ? 'Bearer $TOKEN$' : `Bearer ${keyEntry.apiKey.trim()}`;
       }
 
       // Set loading state for this key
@@ -223,6 +229,7 @@ export function AiProvidersOpenAIEditPage() {
       try {
         const result = await apiCallApi.request(
           {
+            authIndex: keyAuthIndex,
             method: 'POST',
             url: endpoint,
             header: Object.keys(headers).length ? headers : undefined,
@@ -304,7 +311,7 @@ export function AiProvidersOpenAIEditPage() {
     }
 
     const validKeyIndexes = form.apiKeyEntries
-      .map((entry, index) => (entry.apiKey?.trim() ? index : -1))
+      .map((entry, index) => (entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex) ? index : -1))
       .filter((index) => index >= 0);
     if (validKeyIndexes.length === 0) {
       const message = t('notification.openai_test_key_required');
@@ -385,6 +392,17 @@ export function AiProvidersOpenAIEditPage() {
         ...prev,
         apiKeyEntries: next.length ? next : [buildApiKeyEntry()],
       }));
+      setVisibleKeyIndexes((prev) => {
+        const shifted = new Set<number>();
+        prev.forEach((visibleIndex) => {
+          if (visibleIndex < idx) {
+            shifted.add(visibleIndex);
+          } else if (visibleIndex > idx) {
+            shifted.add(visibleIndex - 1);
+          }
+        });
+        return shifted;
+      });
       resetDraftKeyTestStatuses(nextLength);
       setTestStatus('idle');
       setTestMessage('');
@@ -426,7 +444,10 @@ export function AiProvidersOpenAIEditPage() {
           {/* 数据行 */}
           {list.map((entry, index) => {
             const keyStatus = keyTestStatuses[index]?.status ?? 'idle';
-            const canTestKey = Boolean(entry.apiKey?.trim()) && hasConfiguredModels;
+            const keyVisible = visibleKeyIndexes.has(index);
+            const canTestKey =
+              Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)) &&
+              hasConfiguredModels;
 
             return (
               <div key={index} className={styles.keyTableRow}>
@@ -443,14 +464,38 @@ export function AiProvidersOpenAIEditPage() {
 
                 {/* Key 输入框 */}
                 <div className={styles.keyTableColKey}>
-                  <input
-                    type="text"
-                    value={entry.apiKey}
-                    onChange={(e) => updateEntry(index, 'apiKey', e.target.value)}
-                    disabled={saving || disableControls || isTestingKeys}
-                    className={`input ${styles.keyTableInput}`}
-                    placeholder={t('ai_providers.openai_key_placeholder')}
-                  />
+                  <div className={styles.keyTableInputWrap}>
+                    <input
+                      type={keyVisible ? 'text' : 'password'}
+                      name={`openai-provider-api-key-${index}`}
+                      autoComplete="new-password"
+                      value={entry.apiKey}
+                      onChange={(e) => updateEntry(index, 'apiKey', e.target.value)}
+                      disabled={saving || disableControls || isTestingKeys}
+                      className={`input ${styles.keyTableInput} ${styles.keyTableSecretInput}`}
+                      placeholder={t('ai_providers.openai_key_placeholder')}
+                    />
+                    <button
+                      type="button"
+                      className={styles.keyTableVisibilityButton}
+                      onClick={() =>
+                        setVisibleKeyIndexes((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(index)) {
+                            next.delete(index);
+                          } else {
+                            next.add(index);
+                          }
+                          return next;
+                        })
+                      }
+                      aria-label={keyVisible ? t('login.hide_key') : t('login.show_key')}
+                      title={keyVisible ? t('login.hide_key') : t('login.show_key')}
+                      disabled={saving || disableControls || isTestingKeys}
+                    >
+                      {keyVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Proxy 输入框 */}

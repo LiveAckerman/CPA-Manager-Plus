@@ -9,6 +9,7 @@ import { ModelInputList } from '@/components/ui/ModelInputList';
 import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
@@ -16,6 +17,7 @@ import { modelsApi, providersApi } from '@/services/api';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import type { ProviderKeyConfig } from '@/types';
 import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/utils/headers';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { areKeyValueEntriesEqual, areModelEntriesEqual, areStringArraysEqual } from '@/utils/compare';
 import { entriesToModels, modelsToEntries } from '@/components/ui/modelInputListUtils';
 import { excludedModelsToText, parseExcludedModels } from '@/components/providers/utils';
@@ -41,9 +43,9 @@ const buildEmptyForm = (): ProviderFormState => ({
 });
 
 const parseIndexParam = (value: string | undefined) => {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!value || !/^(0|[1-9]\d*)$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 };
 
 const getErrorMessage = (err: unknown) => {
@@ -117,6 +119,7 @@ export function AiProvidersCodexEditPage() {
   const [modelDiscoveryError, setModelDiscoveryError] = useState('');
   const [modelDiscoverySearch, setModelDiscoverySearch] = useState('');
   const [modelDiscoverySelected, setModelDiscoverySelected] = useState<Set<string>>(new Set());
+  const [showApiKey, setShowApiKey] = useState(false);
   const autoFetchSignatureRef = useRef<string>('');
   const modelDiscoveryRequestIdRef = useRef(0);
 
@@ -329,7 +332,8 @@ export function AiProvidersCodexEditPage() {
       const list = await modelsApi.fetchV1ModelsViaApiCall(
         form.baseUrl ?? '',
         hasCustomAuthorization ? undefined : apiKey,
-        headerObject
+        headerObject,
+        normalizeAuthIndex(form.authIndex) ?? undefined
       );
       if (modelDiscoveryRequestIdRef.current !== requestId) return;
       setDiscoveredModels(list);
@@ -343,7 +347,7 @@ export function AiProvidersCodexEditPage() {
         setModelDiscoveryFetching(false);
       }
     }
-  }, [form.apiKey, form.baseUrl, form.headers, t]);
+  }, [form.apiKey, form.authIndex, form.baseUrl, form.headers, t]);
 
   useEffect(() => {
     if (!modelDiscoveryOpen) {
@@ -367,7 +371,8 @@ export function AiProvidersCodexEditPage() {
       (key) => key.toLowerCase() === 'authorization'
     );
     const hasApiKeyField = Boolean(form.apiKey.trim());
-    const canAutoFetch = hasApiKeyField || hasCustomAuthorization;
+    const hasAuthIndex = Boolean(normalizeAuthIndex(form.authIndex));
+    const canAutoFetch = hasApiKeyField || hasCustomAuthorization || hasAuthIndex;
 
     if (!canAutoFetch) return;
 
@@ -375,12 +380,12 @@ export function AiProvidersCodexEditPage() {
       .sort(([a], [b]) => a.toLowerCase().localeCompare(b.toLowerCase()))
       .map(([key, value]) => `${key}:${value}`)
       .join('|');
-    const signature = `${nextEndpoint}||${form.apiKey.trim()}||${headerSignature}`;
+    const signature = `${nextEndpoint}||${form.apiKey.trim()}||${normalizeAuthIndex(form.authIndex) ?? ''}||${headerSignature}`;
     if (autoFetchSignatureRef.current === signature) return;
     autoFetchSignatureRef.current = signature;
 
     void fetchCodexModelDiscovery();
-  }, [fetchCodexModelDiscovery, form.apiKey, form.baseUrl, form.headers, modelDiscoveryOpen]);
+  }, [fetchCodexModelDiscovery, form.apiKey, form.authIndex, form.baseUrl, form.headers, modelDiscoveryOpen]);
 
   useEffect(() => {
     const availableNames = new Set(discoveredModels.map((model) => model.name));
@@ -455,6 +460,7 @@ export function AiProvidersCodexEditPage() {
         headers: buildHeaderObject(form.headers),
         models: entriesToModels(form.modelEntries),
         excludedModels: parseExcludedModels(form.excludedText),
+        authIndex: normalizeAuthIndex(form.authIndex) ?? undefined,
       };
 
       const nextList =
@@ -546,9 +552,24 @@ export function AiProvidersCodexEditPage() {
           <>
             <Input
               label={t('ai_providers.codex_add_modal_key_label')}
+              type={showApiKey ? 'text' : 'password'}
+              name="codex-provider-api-key"
+              autoComplete="new-password"
               value={form.apiKey}
               onChange={(e) => setForm((prev) => ({ ...prev, apiKey: e.target.value }))}
               disabled={disableControls || saving}
+              rightElement={
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowApiKey((prev) => !prev)}
+                  aria-label={showApiKey ? t('login.hide_key') : t('login.show_key')}
+                  title={showApiKey ? t('login.hide_key') : t('login.show_key')}
+                  disabled={disableControls || saving}
+                >
+                  {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                </button>
+              }
             />
             <Input
               label={t('ai_providers.priority_label')}

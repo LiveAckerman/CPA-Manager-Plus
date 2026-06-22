@@ -14,6 +14,7 @@ import type {
   ClaudeQuotaWindow,
   GeminiCliQuotaBucketState,
   KimiQuotaRow,
+  XaiBillingSummary,
 } from '@/types';
 import { requestCodexUsagePayload } from '@/services/api';
 import {
@@ -22,6 +23,7 @@ import {
   fetchClaudeQuota,
   fetchGeminiCliQuota,
   fetchKimiQuota,
+  fetchXaiQuota,
   formatKimiResetHint,
   formatQuotaResetTime,
   getStatusFromError,
@@ -90,22 +92,14 @@ const buildCodexAccountQuotaWindows = (
     const clampedUsed =
       window.usedPercent === null ? null : Math.max(0, Math.min(100, window.usedPercent));
     const remainingPercent = clampedUsed === null ? null : Math.max(0, 100 - clampedUsed);
-    let usageLabel: string | null = null;
-
-    if (
-      window.limitWindowSeconds !== null &&
-      window.limitWindowSeconds > 0 &&
-      clampedUsed !== null
-    ) {
-      const totalHours = window.limitWindowSeconds / 3600;
-      const usedHours = (totalHours * clampedUsed) / 100;
-      const formatHours = (value: number) =>
-        Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
-      usageLabel = t('codex_quota.window_usage', {
-        used: formatHours(usedHours),
-        total: formatHours(totalHours),
-      });
-    }
+    const usageLabel =
+      clampedUsed === null
+        ? null
+        : t('codex_quota.window_usage', {
+            percent: Number.isInteger(clampedUsed)
+              ? clampedUsed.toFixed(0)
+              : clampedUsed.toFixed(1),
+          });
 
     return {
       id: window.id,
@@ -145,9 +139,7 @@ const geminiBucketToAccountWindow = (
   t: TFunction
 ): AccountQuotaWindow => {
   const clamped =
-    bucket.remainingFraction === null
-      ? null
-      : Math.max(0, Math.min(1, bucket.remainingFraction));
+    bucket.remainingFraction === null ? null : Math.max(0, Math.min(1, bucket.remainingFraction));
   const remainingPercent = clamped === null ? null : clamped * 100;
   const usageLabel =
     bucket.remainingAmount === null || bucket.remainingAmount === undefined
@@ -165,11 +157,7 @@ const geminiBucketToAccountWindow = (
 const kimiRowToAccountWindow = (row: KimiQuotaRow, t: TFunction): AccountQuotaWindow => {
   const { limit, used } = row;
   const remainingPercent =
-    limit > 0
-      ? Math.max(0, Math.min(100, ((limit - used) / limit) * 100))
-      : used > 0
-        ? 0
-        : null;
+    limit > 0 ? Math.max(0, Math.min(100, ((limit - used) / limit) * 100)) : used > 0 ? 0 : null;
   const label = row.labelKey
     ? t(row.labelKey, (row.labelParams ?? {}) as Record<string, string | number>)
     : (row.label ?? '');
@@ -182,6 +170,44 @@ const kimiRowToAccountWindow = (row: KimiQuotaRow, t: TFunction): AccountQuotaWi
     resetLabel,
     usageLabel,
   };
+};
+
+const formatUsdFromCents = (cents: number | null): string => {
+  if (cents === null) return '--';
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+  }).format(cents / 100);
+};
+
+const xaiBillingToAccountWindow = (
+  billing: XaiBillingSummary,
+  t: TFunction
+): AccountQuotaWindow => {
+  const clampedUsed =
+    billing.usedPercent === null ? null : Math.max(0, Math.min(100, billing.usedPercent));
+  const remainingPercent = clampedUsed === null ? null : Math.max(0, 100 - clampedUsed);
+  const usedLabel = formatUsdFromCents(billing.usedCents);
+  const limitLabel = formatUsdFromCents(billing.monthlyLimitCents);
+  const usageLabel =
+    billing.monthlyLimitCents === null ? usedLabel : `${usedLabel} / ${limitLabel}`;
+  return {
+    id: 'monthly-credits',
+    label: t('xai_quota.monthly_credits'),
+    remainingPercent,
+    resetLabel: formatQuotaResetTime(billing.billingPeriodEnd),
+    usageLabel,
+  };
+};
+
+const formatXaiPayAsYouGoSubtitle = (billing: XaiBillingSummary, t: TFunction): string | null => {
+  const onDemandCap = billing.onDemandCapCents ?? 0;
+  const label = t('xai_quota.pay_as_you_go_label');
+  const value =
+    onDemandCap > 0
+      ? t('xai_quota.pay_as_you_go_enabled', { cap: formatUsdFromCents(onDemandCap) })
+      : t('xai_quota.pay_as_you_go_disabled');
+  return `${label}: ${value}`;
 };
 
 const formatClaudeExtraUsage = (
@@ -296,6 +322,19 @@ const fetchKimiEntry = async (
   };
 };
 
+const fetchXaiEntry = async (
+  target: MonitoringAccountQuotaTarget,
+  file: AuthFileItem,
+  t: TFunction
+): Promise<AccountQuotaEntry> => {
+  const billing = await fetchXaiQuota(file, t);
+  return {
+    ...commonFields(target),
+    subtitle: formatXaiPayAsYouGoSubtitle(billing, t),
+    windows: [xaiBillingToAccountWindow(billing, t)],
+  };
+};
+
 /**
  * Single entry point: dispatch to the matching provider's fetch + mapper.
  * Catches and translates errors into a populated AccountQuotaEntry.
@@ -321,6 +360,9 @@ export const fetchAccountQuotaEntry = async (
       case 'kimi':
         if (!file) throw new Error(t('kimi_quota.missing_auth_index'));
         return await fetchKimiEntry(target, file, t);
+      case 'xai':
+        if (!file) throw new Error(t('xai_quota.missing_auth_index'));
+        return await fetchXaiEntry(target, file, t);
       default:
         return errorEntry(target, new Error(`Unsupported provider: ${String(target.provider)}`), t);
     }

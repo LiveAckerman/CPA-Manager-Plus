@@ -155,6 +155,13 @@ describe('accountOverviewQuotaTargets', () => {
               label: 'Kimi',
               account: 'shared@example.com',
             },
+            {
+              name: 'xai.json',
+              type: 'xai',
+              authIndex: '6',
+              label: 'Xai',
+              account: 'shared@example.com',
+            },
           ],
           toggleableFileNames: [
             'codex.json',
@@ -162,6 +169,7 @@ describe('accountOverviewQuotaTargets', () => {
             'antigravity.json',
             'gemini-cli.json',
             'kimi.json',
+            'xai.json',
           ],
           enabledState: 'enabled',
         },
@@ -173,15 +181,60 @@ describe('accountOverviewQuotaTargets', () => {
         createAccountRow({
           id: 'shared@example.com',
           account: 'shared@example.com',
-          authIndices: ['1', '2', '3', '4', '5'],
-          authLabels: ['Codex', 'Claude', 'Antigravity', 'Gemini', 'Kimi'],
+          authIndices: ['1', '2', '3', '4', '5', '6'],
+          authLabels: ['Codex', 'Claude', 'Antigravity', 'Gemini', 'Kimi', 'Xai'],
         }),
       ],
       authStateByRowId
     );
 
     const providers = result.get('shared@example.com')?.map((target) => target.provider);
-    expect(providers).toEqual(['antigravity', 'claude', 'codex', 'gemini-cli', 'kimi']);
+    expect(providers).toEqual(['antigravity', 'claude', 'codex', 'gemini-cli', 'kimi', 'xai']);
+  });
+
+  it('recognizes xAI files when stored under the x-ai or grok alias', () => {
+    const authStateByRowId = new Map<string, MonitoringAccountAuthState>([
+      [
+        'grok@example.com',
+        {
+          files: [
+            {
+              name: 'grok-a.json',
+              type: 'x-ai',
+              authIndex: '1',
+              label: 'GrokA',
+              account: 'grok@example.com',
+            },
+            {
+              name: 'grok-b.json',
+              type: 'grok',
+              authIndex: '2',
+              label: 'GrokB',
+              account: 'grok@example.com',
+            },
+          ],
+          toggleableFileNames: ['grok-a.json', 'grok-b.json'],
+          enabledState: 'enabled',
+        },
+      ],
+    ]);
+
+    const result = buildMonitoringAccountQuotaTargetsByAccount(
+      [
+        createAccountRow({
+          id: 'grok@example.com',
+          account: 'grok@example.com',
+          authIndices: ['1', '2'],
+          authLabels: ['GrokA', 'GrokB'],
+        }),
+      ],
+      authStateByRowId
+    );
+
+    expect(result.get('grok@example.com')).toMatchObject([
+      { provider: 'xai', fileName: 'grok-a.json' },
+      { provider: 'xai', fileName: 'grok-b.json' },
+    ]);
   });
 
   it('skips disabled and gemini-cli runtime-only files', () => {

@@ -14,6 +14,7 @@ type AuthFileEntry = AuthFilesResponse['files'][number];
 export type AuthFileFieldsPatch = {
   prefix?: string;
   proxy_url?: string;
+  websockets?: boolean;
   headers?: Record<string, string>;
   priority?: number;
   note?: string;

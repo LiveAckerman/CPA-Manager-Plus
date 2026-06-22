@@ -7,6 +7,7 @@ import {
   isGeminiCliFile,
   isKimiFile,
   isRuntimeOnlyAuthFile,
+  isXaiFile,
   normalizeAuthIndex,
   resolveCodexChatgptAccountId,
   resolveCodexPlanType,
@@ -45,6 +46,7 @@ const resolveQuotaProvider = (file: AuthFileItem): QuotaType | null => {
   if (isAntigravityFile(file)) return 'antigravity';
   if (isGeminiCliFile(file)) return 'gemini-cli';
   if (isKimiFile(file)) return 'kimi';
+  if (isXaiFile(file)) return 'xai';
   return null;
 };
 

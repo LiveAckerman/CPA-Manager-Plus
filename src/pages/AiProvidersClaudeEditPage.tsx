@@ -8,10 +8,12 @@ import { Select } from '@/components/ui/Select';
 import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { ModelInputList } from '@/components/ui/ModelInputList';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { IconEye, IconEyeOff } from '@/components/ui/icons';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { apiCallApi, getApiCallErrorMessage } from '@/services/api';
 import { useNotificationStore } from '@/stores';
+import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject } from '@/utils/headers';
 import { buildClaudeMessagesEndpoint, parseTextList } from '@/components/providers/utils';
 import type { ClaudeEditOutletContext } from './AiProvidersClaudeEditLayout';
@@ -71,6 +73,7 @@ export function AiProvidersClaudeEditPage() {
 
   const swipeRef = useEdgeSwipeBack({ onBack: handleBack });
   const [isTesting, setIsTesting] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const lastCloakConfigRef = useRef<typeof form.cloak>(null);
 
   useEffect(() => {
@@ -132,12 +135,13 @@ export function AiProvidersClaudeEditPage() {
       .join('|');
     return [
       form.apiKey.trim(),
+      normalizeAuthIndex(form.authIndex) ?? '',
       form.baseUrl?.trim() ?? '',
       testModel.trim(),
       headersSignature,
       modelsSignature,
     ].join('||');
-  }, [form.apiKey, form.baseUrl, form.headers, form.modelEntries, testModel]);
+  }, [form.apiKey, form.authIndex, form.baseUrl, form.headers, form.modelEntries, testModel]);
 
   const previousConnectivityConfigRef = useRef(connectivityConfigSignature);
 
@@ -168,11 +172,12 @@ export function AiProvidersClaudeEditPage() {
 
     const customHeaders = buildHeaderObject(form.headers);
     const apiKey = form.apiKey.trim();
+    const keyAuthIndex = normalizeAuthIndex(form.authIndex) ?? undefined;
     const hasApiKeyHeader = hasHeader(customHeaders, 'x-api-key');
     const apiKeyFromAuthorization = resolveBearerTokenFromAuthorization(customHeaders);
     const resolvedApiKey = apiKey || apiKeyFromAuthorization;
 
-    if (!resolvedApiKey && !hasApiKeyHeader) {
+    if (!resolvedApiKey && !hasApiKeyHeader && !keyAuthIndex) {
       const message = t('ai_providers.claude_test_key_required');
       setTestStatus('error');
       setTestMessage(message);
@@ -201,11 +206,13 @@ export function AiProvidersClaudeEditPage() {
       headers['Anthropic-Version'] = headers['anthropic-version'] ?? DEFAULT_ANTHROPIC_VERSION;
     }
 
-    if (!hasApiKeyHeader && resolvedApiKey) {
-      headers['x-api-key'] = resolvedApiKey;
+    const tokenValue = resolvedApiKey || (keyAuthIndex ? '$TOKEN$' : '');
+
+    if (!hasApiKeyHeader && tokenValue) {
+      headers['x-api-key'] = tokenValue;
     }
-    if (!Object.prototype.hasOwnProperty.call(headers, 'X-Api-Key') && resolvedApiKey) {
-      headers['X-Api-Key'] = resolvedApiKey;
+    if (!Object.prototype.hasOwnProperty.call(headers, 'X-Api-Key') && tokenValue) {
+      headers['X-Api-Key'] = tokenValue;
     }
 
     setIsTesting(true);
@@ -216,6 +223,7 @@ export function AiProvidersClaudeEditPage() {
       const result = await apiCallApi.request(
         {
           method: 'POST',
+          authIndex: keyAuthIndex,
           url: endpoint,
           header: headers,
           data: JSON.stringify({
@@ -254,6 +262,7 @@ export function AiProvidersClaudeEditPage() {
   }, [
     availableModels,
     form.apiKey,
+    form.authIndex,
     form.baseUrl,
     form.headers,
     isTesting,
@@ -305,9 +314,24 @@ export function AiProvidersClaudeEditPage() {
           <div className={styles.openaiEditForm}>
             <Input
               label={t('ai_providers.claude_add_modal_key_label')}
+              type={showApiKey ? 'text' : 'password'}
+              name="claude-provider-api-key"
+              autoComplete="new-password"
               value={form.apiKey}
               onChange={(e) => setForm((prev) => ({ ...prev, apiKey: e.target.value }))}
               disabled={saving || disableControls || isTesting}
+              rightElement={
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowApiKey((prev) => !prev)}
+                  aria-label={showApiKey ? t('login.hide_key') : t('login.show_key')}
+                  title={showApiKey ? t('login.hide_key') : t('login.show_key')}
+                  disabled={saving || disableControls || isTesting}
+                >
+                  {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                </button>
+              }
             />
             <Input
               label={t('ai_providers.priority_label')}
