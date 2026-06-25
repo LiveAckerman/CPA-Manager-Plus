@@ -840,7 +840,7 @@ const resolveLegacyProbeAction = (
   if (statusCode === 401) {
     return {
       action: 'delete',
-      actionReason: '接口返回 401，建议删除失效账号',
+      actionReason: '接口返回 401，需要重新登录，建议删除失效账号',
       usedPercent,
       isQuota: false,
     };
@@ -896,7 +896,7 @@ const resolveWindowAwareProbeAction = (
   if (statusCode === 401) {
     return {
       action: 'delete',
-      actionReason: '接口返回 401，建议删除失效账号',
+      actionReason: '接口返回 401，需要重新登录，建议删除失效账号',
       usedPercent: weeklyUsedPercent,
       isQuota: false,
     };
